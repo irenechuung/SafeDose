@@ -7,15 +7,15 @@ export default function CaregiverLayout() {
       <Tabs.Screen
         name="dashboard"
         options={{
-          title: 'Dashboard',
+          title: 'Overview',
           tabBarIcon: ({ color }) => <Ionicons name="home-outline" size={24} color={color} />,
         }}
       />
       <Tabs.Screen
-        name="history"
+        name="patients"
         options={{
-          title: 'History',
-          tabBarIcon: ({ color }) => <Ionicons name="time-outline" size={24} color={color} />,
+          title: 'Patients',
+          tabBarIcon: ({ color }) => <Ionicons name="people-outline" size={24} color={color} />,
         }}
       />
     </Tabs>
