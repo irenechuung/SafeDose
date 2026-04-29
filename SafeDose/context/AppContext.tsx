@@ -84,8 +84,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [doseLogs, setDoseLogs] = useState<DoseLog[]>([]);
   const [patients, setPatients] = useState<PatientProfile[]>([]);
 
-  const unsubMeds = useRef<(() => void) | null>(null);
-  const unsubLogs = useRef<(() => void) | null>(null);
+  const unsubPatientMeds = useRef<(() => void) | null>(null);
+  const unsubPatientLogs = useRef<(() => void) | null>(null);
+  const unsubCaregiverMeds = useRef<(() => void) | null>(null);
+  const unsubCaregiverLogs = useRef<(() => void) | null>(null);
   const unsubPatients = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -119,26 +121,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Patient subscriptions
   useEffect(() => {
-    unsubMeds.current?.();
-    unsubLogs.current?.();
-    unsubMeds.current = null;
-    unsubLogs.current = null;
+    unsubPatientMeds.current?.();
+    unsubPatientLogs.current?.();
+    unsubPatientMeds.current = null;
+    unsubPatientLogs.current = null;
 
     if (!firebaseUser || role !== 'patient') return;
 
     const medsQ = query(collection(db, 'medications'), where('patientUid', '==', firebaseUser.uid));
-    unsubMeds.current = onSnapshot(medsQ, snap => {
+    unsubPatientMeds.current = onSnapshot(medsQ, snap => {
       setMedications(snap.docs.map(d => ({ id: d.id, ...d.data() } as Medication)));
     });
 
     const logsQ = query(collection(db, 'doseLogs'), where('patientUid', '==', firebaseUser.uid));
-    unsubLogs.current = onSnapshot(logsQ, snap => {
+    unsubPatientLogs.current = onSnapshot(logsQ, snap => {
       setDoseLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as DoseLog)));
     });
 
     return () => {
-      unsubMeds.current?.();
-      unsubLogs.current?.();
+      unsubPatientMeds.current?.();
+      unsubPatientLogs.current?.();
     };
   }, [firebaseUser, role]);
 
@@ -203,10 +205,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const patientUidKey = patients.map(p => p.uid).sort().join(',');
 
   useEffect(() => {
-    unsubMeds.current?.();
-    unsubLogs.current?.();
-    unsubMeds.current = null;
-    unsubLogs.current = null;
+    unsubCaregiverMeds.current?.();
+    unsubCaregiverLogs.current?.();
+    unsubCaregiverMeds.current = null;
+    unsubCaregiverLogs.current = null;
 
     if (role !== 'caregiver' || patients.length === 0) {
       if (role === 'caregiver') {
@@ -219,18 +221,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const uids = patients.map(p => p.uid);
 
     const medsQ = query(collection(db, 'medications'), where('patientUid', 'in', uids));
-    unsubMeds.current = onSnapshot(medsQ, snap => {
+    unsubCaregiverMeds.current = onSnapshot(medsQ, snap => {
       setMedications(snap.docs.map(d => ({ id: d.id, ...d.data() } as Medication)));
     });
 
     const logsQ = query(collection(db, 'doseLogs'), where('patientUid', 'in', uids));
-    unsubLogs.current = onSnapshot(logsQ, snap => {
+    unsubCaregiverLogs.current = onSnapshot(logsQ, snap => {
       setDoseLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as DoseLog)));
     });
 
     return () => {
-      unsubMeds.current?.();
-      unsubLogs.current?.();
+      unsubCaregiverMeds.current?.();
+      unsubCaregiverLogs.current?.();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role, patientUidKey]);
