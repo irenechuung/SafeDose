@@ -10,7 +10,9 @@ export default function CaregiverPatients() {
   const { patients, medications, doseLogs, updateMedication, deleteMedication } = useApp();
   const today = new Date().toISOString().split('T')[0];
   const [selectedPatient, setSelectedPatient] = useState<PatientProfile | null>(null);
-  const [editingMed, setEditingMed] = useState<Medication | null>(null);
+
+  // Inline edit state — lives inside the patient detail modal, no nested Modal needed
+  const [editingMedId, setEditingMedId] = useState<string | null>(null);
   const [editPills, setEditPills] = useState('');
   const [editTimes, setEditTimes] = useState<string[]>([]);
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -42,24 +44,28 @@ export default function CaregiverPatients() {
     setShowTimePicker(false);
   };
 
-  const openEditMed = (med: Medication) => {
-    setEditingMed(med);
+  const openEdit = (med: Medication) => {
+    setEditingMedId(med.id);
     setEditPills(String(med.remainingPills));
     setEditTimes([...med.times]);
   };
 
-  const saveEdit = async () => {
-    if (!editingMed) return;
+  const cancelEdit = () => {
+    setEditingMedId(null);
+    setShowTimePicker(false);
+  };
+
+  const saveEdit = async (med: Medication) => {
     if (editTimes.length === 0) {
       Alert.alert('Schedule required', 'Add at least one reminder time.'); return;
     }
     setSaving(true);
     try {
-      await updateMedication(editingMed.id, {
+      await updateMedication(med.id, {
         remainingPills: Math.max(0, parseInt(editPills) || 0),
         times: editTimes,
       });
-      setEditingMed(null);
+      setEditingMedId(null);
     } catch {
       Alert.alert('Error', 'Could not save changes.');
     } finally {
@@ -76,6 +82,7 @@ export default function CaregiverPatients() {
         {
           text: 'Remove', style: 'destructive',
           onPress: async () => {
+            if (editingMedId === med.id) setEditingMedId(null);
             try {
               await deleteMedication(med.id);
             } catch {
@@ -89,6 +96,12 @@ export default function CaregiverPatients() {
 
   const dotColor = (status: string) =>
     status === 'taken' ? '#16A34A' : status === 'missed' ? '#DC2626' : '#94A3B8';
+
+  const formatDate = (d: string) => {
+    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+    if (d === yesterday) return 'Yesterday';
+    return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -116,7 +129,7 @@ export default function CaregiverPatients() {
             <TouchableOpacity
               key={patient.uid}
               style={styles.patientCard}
-              onPress={() => setSelectedPatient(patient)}
+              onPress={() => { setEditingMedId(null); setSelectedPatient(patient); }}
               activeOpacity={0.85}>
               <View style={styles.patientCardHeader}>
                 <View style={styles.avatar}>
@@ -148,7 +161,6 @@ export default function CaregiverPatients() {
                 </View>
               </View>
 
-              {/* Today's dose quick view */}
               {patientLogs.slice(0, 3).map(log => (
                 <View key={log.id} style={styles.miniLogRow}>
                   <View style={[styles.miniDot, { backgroundColor: dotColor(log.status) }]} />
@@ -162,33 +174,26 @@ export default function CaregiverPatients() {
               {patientLogs.length > 3 && (
                 <Text style={styles.moreText}>+{patientLogs.length - 3} more · tap to view all</Text>
               )}
-
               <Text style={styles.tapToManage}>Tap to manage medications →</Text>
             </TouchableOpacity>
           );
         })}
       </ScrollView>
 
-      {/* Patient detail modal */}
+      {/* Single patient detail modal — edit is inline, no nested modal */}
       <Modal visible={!!selectedPatient} animationType="slide" presentationStyle="pageSheet">
         {selectedPatient && (() => {
           const patientMeds = medications.filter(m => m.patientUid === selectedPatient.uid);
           const allPatientLogs = doseLogs.filter(l => l.patientUid === selectedPatient.uid);
           const patientLogs = allPatientLogs.filter(l => l.date === today);
           const resolved = allPatientLogs.filter(l => l.status !== 'pending');
-          const taken = resolved.filter(l => l.status === 'taken').length;
-          const adherence = resolved.length > 0 ? Math.round((taken / resolved.length) * 100) : 0;
+          const takenAll = resolved.filter(l => l.status === 'taken').length;
+          const adherence = resolved.length > 0 ? Math.round((takenAll / resolved.length) * 100) : 0;
 
           const pastLogs = allPatientLogs.filter(l => l.date !== today);
           const sortedPast = [...pastLogs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
           const groupedPast: Record<string, DoseLog[]> = {};
           sortedPast.forEach(l => { groupedPast[l.date] = [...(groupedPast[l.date] ?? []), l]; });
-
-          const formatDate = (d: string) => {
-            const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-            if (d === yesterday) return 'Yesterday';
-            return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-          };
 
           return (
             <SafeAreaView style={styles.modalContainer}>
@@ -197,27 +202,25 @@ export default function CaregiverPatients() {
                   <Text style={styles.modalPatientName}>{selectedPatient.name}</Text>
                   <Text style={styles.modalPatientEmail}>{selectedPatient.email}</Text>
                 </View>
-                <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setSelectedPatient(null)}>
+                <TouchableOpacity style={styles.modalCloseBtn} onPress={() => { cancelEdit(); setSelectedPatient(null); }}>
                   <Text style={styles.modalCloseText}>Done</Text>
                 </TouchableOpacity>
               </View>
 
-              <ScrollView contentContainerStyle={styles.modalScroll}>
-                {/* Adherence summary */}
+              <ScrollView contentContainerStyle={styles.modalScroll} keyboardShouldPersistTaps="handled">
+                {/* Adherence */}
                 <View style={styles.modalAdherenceCard}>
                   <Text style={styles.modalAdherenceLabel}>Overall Adherence</Text>
                   <Text style={styles.modalAdherencePct}>{adherence}%</Text>
                   <View style={styles.modalAdherenceBar}>
                     <View style={[styles.modalAdherenceFill, { width: `${adherence}%` as `${number}%` }]} />
                   </View>
-                  <Text style={styles.modalAdherenceSub}>{taken} of {resolved.length} resolved doses taken</Text>
+                  <Text style={styles.modalAdherenceSub}>{takenAll} of {resolved.length} resolved doses taken</Text>
                 </View>
 
                 {/* Today's doses */}
                 <Text style={styles.modalSection}>Today's Doses</Text>
-                {patientLogs.length === 0 && (
-                  <Text style={styles.noneText}>No doses scheduled today.</Text>
-                )}
+                {patientLogs.length === 0 && <Text style={styles.noneText}>No doses scheduled today.</Text>}
                 {patientLogs.map(log => (
                   <View key={log.id} style={styles.logRow}>
                     <View style={[styles.dot, { backgroundColor: dotColor(log.status) }]} />
@@ -231,41 +234,111 @@ export default function CaregiverPatients() {
                   </View>
                 ))}
 
-                {/* Medications management */}
+                {/* Medications — inline edit */}
                 <Text style={styles.modalSection}>Medications</Text>
-                {patientMeds.length === 0 && (
-                  <Text style={styles.noneText}>No medications added yet.</Text>
-                )}
-                {patientMeds.map(med => (
-                  <View key={med.id} style={styles.medCard}>
-                    <View style={styles.medCardHeader}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.medCardName}>{med.name}</Text>
-                        <Text style={styles.medCardDosage}>{med.dosage} · {med.pillCount} pill{med.pillCount > 1 ? 's' : ''} per dose</Text>
-                        <Text style={styles.medCardTimes}>{med.times.join(', ')}</Text>
-                      </View>
-                      <View style={styles.medCardRight}>
-                        <View style={[styles.pillCountBadge, med.remainingPills < 15 && styles.pillCountBadgeLow]}>
-                          <Text style={[styles.pillCount, med.remainingPills < 15 && { color: '#92400E' }]}>
-                            {med.remainingPills}
-                          </Text>
-                          <Text style={[styles.pillCountLabel, med.remainingPills < 15 && { color: '#92400E' }]}>pills</Text>
+                {patientMeds.length === 0 && <Text style={styles.noneText}>No medications added yet.</Text>}
+                {patientMeds.map(med => {
+                  const isEditing = editingMedId === med.id;
+                  return (
+                    <View key={med.id} style={[styles.medCard, isEditing && styles.medCardEditing]}>
+                      {isEditing ? (
+                        /* ── Inline edit form ── */
+                        <View>
+                          <Text style={styles.editingMedName}>{med.name}</Text>
+
+                          <Text style={styles.editLabel}>Pills remaining</Text>
+                          <TextInput
+                            style={styles.editInput}
+                            value={editPills}
+                            onChangeText={setEditPills}
+                            keyboardType="numeric"
+                            placeholderTextColor="#94A3B8"
+                            autoFocus
+                          />
+
+                          <Text style={styles.editLabel}>Reminder times</Text>
+                          <View style={styles.chipRow}>
+                            {editTimes.map(t => (
+                              <TouchableOpacity
+                                key={t}
+                                style={styles.editTimeChip}
+                                onPress={() => setEditTimes(prev => prev.filter(x => x !== t))}>
+                                <Text style={styles.editTimeChipText}>{t}  ✕</Text>
+                              </TouchableOpacity>
+                            ))}
+                            <TouchableOpacity style={styles.addTimeBtn} onPress={() => setShowTimePicker(true)}>
+                              <Text style={styles.addTimeBtnText}>＋ Add time</Text>
+                            </TouchableOpacity>
+                          </View>
+
+                          {Platform.OS === 'android' && showTimePicker && (
+                            <DateTimePicker value={pickerTime} mode="time" display="default" onChange={onPickerChange} />
+                          )}
+                          {Platform.OS === 'ios' && showTimePicker && (
+                            <View style={styles.inlinePickerBox}>
+                              <View style={styles.inlinePickerHeader}>
+                                <TouchableOpacity onPress={() => setShowTimePicker(false)}>
+                                  <Text style={styles.inlinePickerCancel}>Cancel</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity onPress={confirmIOSTime}>
+                                  <Text style={styles.inlinePickerDone}>Done</Text>
+                                </TouchableOpacity>
+                              </View>
+                              <DateTimePicker
+                                value={pickerTime}
+                                mode="time"
+                                display="spinner"
+                                onChange={onPickerChange}
+                                themeVariant="light"
+                                style={{ backgroundColor: '#FFF' }}
+                              />
+                            </View>
+                          )}
+
+                          <View style={styles.editActions}>
+                            <TouchableOpacity style={styles.cancelEditBtn} onPress={cancelEdit}>
+                              <Text style={styles.cancelEditText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[styles.saveBtn, saving && { opacity: 0.6 }]}
+                              onPress={() => saveEdit(med)}
+                              disabled={saving}>
+                              {saving
+                                ? <ActivityIndicator color="#FFF" />
+                                : <Text style={styles.saveBtnText}>Save</Text>}
+                            </TouchableOpacity>
+                          </View>
                         </View>
-                      </View>
+                      ) : (
+                        /* ── Read view ── */
+                        <View>
+                          <View style={styles.medCardHeader}>
+                            <View style={{ flex: 1 }}>
+                              <Text style={styles.medCardName}>{med.name}</Text>
+                              <Text style={styles.medCardDosage}>{med.dosage} · {med.pillCount} pill{med.pillCount > 1 ? 's' : ''} per dose</Text>
+                              <Text style={styles.medCardTimes}>{med.times.join(', ')}</Text>
+                            </View>
+                            <View style={[styles.pillCountBadge, med.remainingPills < 15 && styles.pillCountBadgeLow]}>
+                              <Text style={[styles.pillCount, med.remainingPills < 15 && { color: '#92400E' }]}>
+                                {med.remainingPills}
+                              </Text>
+                              <Text style={[styles.pillCountLabel, med.remainingPills < 15 && { color: '#92400E' }]}>pills</Text>
+                            </View>
+                          </View>
+                          {med.instructions ? <Text style={styles.medInstructions}>{med.instructions}</Text> : null}
+                          <View style={styles.medCardActions}>
+                            <TouchableOpacity style={styles.editBtn} onPress={() => openEdit(med)}>
+                              <Text style={styles.editBtnText}>Edit</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.deleteBtn} onPress={() => confirmDelete(med)}>
+                              <Text style={styles.deleteBtnText}>Remove</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      )}
                     </View>
-                    {med.instructions ? (
-                      <Text style={styles.medInstructions}>{med.instructions}</Text>
-                    ) : null}
-                    <View style={styles.medCardActions}>
-                      <TouchableOpacity style={styles.editBtn} onPress={() => openEditMed(med)}>
-                        <Text style={styles.editBtnText}>Edit</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.deleteBtn} onPress={() => confirmDelete(med)}>
-                        <Text style={styles.deleteBtnText}>Remove</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ))}
+                  );
+                })}
 
                 {/* Past dose history */}
                 {Object.keys(groupedPast).length > 0 && (
@@ -311,68 +384,6 @@ export default function CaregiverPatients() {
           );
         })()}
       </Modal>
-
-      {/* Edit medication modal */}
-      <Modal visible={!!editingMed} animationType="slide" transparent>
-        <View style={styles.editOverlay}>
-          <View style={styles.editBox}>
-            <Text style={styles.editTitle}>Edit {editingMed?.name}</Text>
-
-            <Text style={styles.editLabel}>Pills remaining</Text>
-            <TextInput
-              style={styles.editInput}
-              value={editPills}
-              onChangeText={setEditPills}
-              keyboardType="numeric"
-              placeholderTextColor="#94A3B8"
-            />
-
-            <Text style={styles.editLabel}>Reminder times</Text>
-            <View style={styles.chipRow}>
-              {editTimes.map(t => (
-                <TouchableOpacity
-                  key={t}
-                  style={styles.editTimeChip}
-                  onPress={() => setEditTimes(prev => prev.filter(x => x !== t))}>
-                  <Text style={styles.editTimeChipText}>{t}  ✕</Text>
-                </TouchableOpacity>
-              ))}
-              <TouchableOpacity style={styles.addTimeBtn} onPress={() => setShowTimePicker(true)}>
-                <Text style={styles.addTimeBtnText}>＋ Add</Text>
-              </TouchableOpacity>
-            </View>
-
-            {Platform.OS === 'android' && showTimePicker && (
-              <DateTimePicker value={pickerTime} mode="time" display="default" onChange={onPickerChange} />
-            )}
-            <Modal visible={Platform.OS === 'ios' && showTimePicker} transparent animationType="slide">
-              <View style={styles.timePickerOverlay}>
-                <View style={styles.timePickerBox}>
-                  <View style={styles.timePickerHeader}>
-                    <TouchableOpacity onPress={() => setShowTimePicker(false)}>
-                      <Text style={styles.timePickerCancel}>Cancel</Text>
-                    </TouchableOpacity>
-                    <Text style={styles.timePickerTitle}>Select Time</Text>
-                    <TouchableOpacity onPress={confirmIOSTime}>
-                      <Text style={styles.timePickerDone}>Done</Text>
-                    </TouchableOpacity>
-                  </View>
-                  <DateTimePicker value={pickerTime} mode="time" display="spinner" onChange={onPickerChange} themeVariant="light" style={{ backgroundColor: '#FFF' }} />
-                </View>
-              </View>
-            </Modal>
-
-            <View style={styles.editActions}>
-              <TouchableOpacity style={styles.cancelEditBtn} onPress={() => setEditingMed(null)}>
-                <Text style={styles.cancelEditText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.saveBtn, saving && { opacity: 0.6 }]} onPress={saveEdit} disabled={saving}>
-                {saving ? <ActivityIndicator color="#FFF" /> : <Text style={styles.saveBtnText}>Save Changes</Text>}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }
@@ -410,18 +421,16 @@ const styles = StyleSheet.create({
   moreText: { fontSize: 11, color: '#94A3B8', marginTop: 4, fontStyle: 'italic' },
   tapToManage: { fontSize: 12, color: '#16A34A', fontWeight: '600', marginTop: 10, textAlign: 'right' },
 
-  // Patient detail modal
   modalContainer: { flex: 1, backgroundColor: '#F0FDF4' },
   modalHeader: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
-    padding: 20, borderBottomWidth: 1, borderBottomColor: '#DCFCE7',
-    backgroundColor: '#FFF',
+    padding: 20, borderBottomWidth: 1, borderBottomColor: '#DCFCE7', backgroundColor: '#FFF',
   },
   modalPatientName: { fontSize: 22, fontWeight: '800', color: '#14532D' },
   modalPatientEmail: { fontSize: 13, color: '#64748B', marginTop: 2 },
   modalCloseBtn: { backgroundColor: '#16A34A', borderRadius: 10, paddingVertical: 8, paddingHorizontal: 16 },
   modalCloseText: { color: '#FFF', fontWeight: '700', fontSize: 14 },
-  modalScroll: { padding: 20 },
+  modalScroll: { padding: 20, paddingBottom: 48 },
   modalAdherenceCard: { backgroundColor: '#16A34A', borderRadius: 16, padding: 16, marginBottom: 16 },
   modalAdherenceLabel: { color: '#BBF7D0', fontSize: 12 },
   modalAdherencePct: { color: '#FFF', fontSize: 32, fontWeight: '800', marginTop: 4 },
@@ -435,12 +444,13 @@ const styles = StyleSheet.create({
   logMed: { fontSize: 14, fontWeight: '600', color: '#1E3A5F' },
   logTime: { fontSize: 11, color: '#94A3B8', marginTop: 2 },
   logStatus: { fontSize: 12, fontWeight: '600' },
+
   medCard: { backgroundColor: '#FFF', borderRadius: 16, padding: 14, marginBottom: 10 },
+  medCardEditing: { borderWidth: 2, borderColor: '#2563EB' },
   medCardHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   medCardName: { fontSize: 16, fontWeight: '700', color: '#1E3A5F' },
   medCardDosage: { fontSize: 12, color: '#2563EB', fontWeight: '600', marginTop: 2 },
   medCardTimes: { fontSize: 12, color: '#64748B', marginTop: 2 },
-  medCardRight: { alignItems: 'center' },
   pillCountBadge: { backgroundColor: '#EFF6FF', borderRadius: 10, padding: 8, alignItems: 'center', minWidth: 52 },
   pillCountBadgeLow: { backgroundColor: '#FEF3C7' },
   pillCount: { fontSize: 20, fontWeight: '800', color: '#2563EB' },
@@ -452,13 +462,7 @@ const styles = StyleSheet.create({
   deleteBtn: { flex: 1, backgroundColor: '#FEE2E2', borderRadius: 10, padding: 10, alignItems: 'center' },
   deleteBtnText: { color: '#DC2626', fontWeight: '700', fontSize: 13 },
 
-  // Edit modal
-  editOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  editBox: {
-    backgroundColor: '#FFF', borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    padding: 24, paddingBottom: 40,
-  },
-  editTitle: { fontSize: 20, fontWeight: '800', color: '#1E3A5F', marginBottom: 16 },
+  editingMedName: { fontSize: 17, fontWeight: '700', color: '#1E3A5F', marginBottom: 4 },
   editLabel: { fontSize: 12, fontWeight: '600', color: '#64748B', marginBottom: 6, marginTop: 12 },
   editInput: {
     backgroundColor: '#F8FAFF', borderRadius: 12, padding: 14,
@@ -469,17 +473,16 @@ const styles = StyleSheet.create({
   editTimeChipText: { color: '#FFF', fontWeight: '600', fontSize: 13 },
   addTimeBtn: { borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14, backgroundColor: '#EFF6FF', borderWidth: 1.5, borderColor: '#2563EB', borderStyle: 'dashed' },
   addTimeBtnText: { color: '#2563EB', fontWeight: '700', fontSize: 13 },
-  editActions: { flexDirection: 'row', gap: 10, marginTop: 24 },
-  cancelEditBtn: { flex: 1, backgroundColor: '#F1F5F9', borderRadius: 14, padding: 14, alignItems: 'center' },
+  inlinePickerBox: { marginTop: 8, borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: '#E2E8F0' },
+  inlinePickerHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 12, backgroundColor: '#F8FAFF', borderBottomWidth: 1, borderBottomColor: '#E2E8F0' },
+  inlinePickerCancel: { fontSize: 14, color: '#94A3B8' },
+  inlinePickerDone: { fontSize: 14, fontWeight: '700', color: '#2563EB' },
+  editActions: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  cancelEditBtn: { flex: 1, backgroundColor: '#F1F5F9', borderRadius: 12, padding: 12, alignItems: 'center' },
   cancelEditText: { color: '#64748B', fontWeight: '700' },
-  saveBtn: { flex: 2, backgroundColor: '#16A34A', borderRadius: 14, padding: 14, alignItems: 'center' },
+  saveBtn: { flex: 2, backgroundColor: '#16A34A', borderRadius: 12, padding: 12, alignItems: 'center' },
   saveBtnText: { color: '#FFF', fontWeight: '700', fontSize: 15 },
-  timePickerOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
-  timePickerBox: { backgroundColor: '#FFF', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 32 },
-  timePickerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#E2E8F0' },
-  timePickerTitle: { fontSize: 16, fontWeight: '700', color: '#1E3A5F' },
-  timePickerCancel: { fontSize: 15, color: '#94A3B8' },
-  timePickerDone: { fontSize: 15, fontWeight: '700', color: '#2563EB' },
+
   historyDivider: { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 20 },
   dividerLine: { flex: 1, height: 1, backgroundColor: '#E2E8F0' },
   dividerLabel: { fontSize: 11, fontWeight: '700', color: '#94A3B8', textTransform: 'uppercase', letterSpacing: 1 },
