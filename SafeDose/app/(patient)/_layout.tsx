@@ -7,15 +7,8 @@ export default function PatientLayout() {
       <Tabs.Screen
         name="home"
         options={{
-          title: 'Today',
+          title: 'Medications',
           tabBarIcon: ({ color }) => <Ionicons name="medical-outline" size={24} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="history"
-        options={{
-          title: 'History',
-          tabBarIcon: ({ color }) => <Ionicons name="time-outline" size={24} color={color} />,
         }}
       />
       <Tabs.Screen
