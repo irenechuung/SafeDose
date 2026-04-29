@@ -1,7 +1,9 @@
 import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
 
 export default function CaregiverDashboard() {
+  const router = useRouter();
   const { profile, patients, medications, doseLogs, signOut } = useApp();
   const today = new Date().toISOString().split('T')[0];
 
@@ -37,7 +39,7 @@ export default function CaregiverDashboard() {
               {profile?.name} · {patients.length} patient{patients.length !== 1 ? 's' : ''}
             </Text>
           </View>
-          <TouchableOpacity style={styles.signOutBtn} onPress={() => signOut()}>
+          <TouchableOpacity style={styles.signOutBtn} onPress={async () => { await signOut(); router.replace('/login'); }}>
             <Text style={styles.signOutText}>Sign Out</Text>
           </TouchableOpacity>
         </View>
