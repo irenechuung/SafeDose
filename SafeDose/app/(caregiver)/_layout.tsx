@@ -18,13 +18,6 @@ export default function CaregiverLayout() {
           tabBarIcon: ({ color }) => <Ionicons name="people-outline" size={24} color={color} />,
         }}
       />
-      <Tabs.Screen
-        name="history"
-        options={{
-          title: 'History',
-          tabBarIcon: ({ color }) => <Ionicons name="time-outline" size={24} color={color} />,
-        }}
-      />
     </Tabs>
   );
 }
