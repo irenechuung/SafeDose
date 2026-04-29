@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useApp } from '@/context/AppContext';
 
 type Role = 'patient' | 'caregiver' | 'doctor';
@@ -47,6 +48,7 @@ export default function Signup() {
         npiNumber: npiNumber.trim() || undefined,
         monitoredPatientEmail: monitoredEmail.trim().toLowerCase() || undefined,
       });
+      await AsyncStorage.setItem('@safedose/lastEmail', email.trim().toLowerCase());
       router.replace('/');
     } catch (e: any) {
       const msg = e.code === 'auth/email-already-in-use'

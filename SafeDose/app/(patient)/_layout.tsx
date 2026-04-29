@@ -12,11 +12,18 @@ import { Tabs } from 'expo-router';
           }}
         />                                                                                                      
         <Tabs.Screen
-          name="history"                                                                                        
+          name="history"
           options={{
-            title: 'History',                                                                                   
+            title: 'History',
             tabBarIcon: ({ color }) => <Ionicons name="time-outline" size={24} color={color} />,
-          }}                                                                                                    
+          }}
+        />
+        <Tabs.Screen
+          name="add"
+          options={{
+            title: 'Add Med',
+            tabBarIcon: ({ color }) => <Ionicons name="add-circle-outline" size={24} color={color} />,
+          }}
         />
       </Tabs>                                                                                                   
     );            

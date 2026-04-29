@@ -76,7 +76,7 @@ export default function RoleSelector() {
       <Text style={styles.prompt}>I am a...</Text>
 
       <View style={styles.cards}>
-        {ROLES.map(role => (
+        {ROLES.filter(r => profile?.role === 'doctor' ? r.id === 'doctor' : r.id !== 'doctor').map(role => (
           <TouchableOpacity
             key={role.id}
             style={[styles.card, { backgroundColor: role.bg, borderColor: role.color }]}

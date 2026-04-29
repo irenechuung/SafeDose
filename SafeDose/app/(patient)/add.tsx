@@ -4,17 +4,12 @@ import {
 } from 'react-native';
 import { useState } from 'react';
 import { useApp } from '@/context/AppContext';
-import { useRouter } from 'expo-router';
-import { MEDICATION_CATEGORIES, MedicationTemplate } from '@/constants/medications';
+import { MEDICATION_CATEGORIES, type MedicationTemplate } from '@/constants/medications';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 
-export default function DoctorPrescribe() {
+export default function PatientAddMedication() {
   const { addMedication, profile } = useApp();
-  const router = useRouter();
-  const doctorName = profile ? `Dr. ${profile.name}` : 'Doctor';
 
-  const [patientName, setPatientName] = useState('');
-  const [patientEmail, setPatientEmail] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedMed, setSelectedMed] = useState<MedicationTemplate | null>(null);
   const [selectedDosage, setSelectedDosage] = useState('');
@@ -34,6 +29,16 @@ export default function DoctorPrescribe() {
     setSelectedMed(med);
     setSelectedDosage(med.commonDosages[0]);
     setInstructions(med.defaultInstructions);
+  };
+
+  const reset = () => {
+    setSelectedCategory(null);
+    setSelectedMed(null);
+    setSelectedDosage('');
+    setPillCount('1');
+    setTotalPills('30');
+    setTimes(['8:00 AM']);
+    setInstructions('');
   };
 
   const formatTime = (date: Date): string => {
@@ -65,10 +70,13 @@ export default function DoctorPrescribe() {
   const removeTime = (t: string) => setTimes(prev => prev.filter(x => x !== t));
 
   const submit = async () => {
-    if (!patientName.trim()) { Alert.alert('Missing info', "Please enter the patient's name."); return; }
-    if (!patientEmail.trim() || !patientEmail.includes('@')) { Alert.alert('Missing info', "Please enter a valid patient email."); return; }
-    if (!selectedMed || !selectedDosage) { Alert.alert('Missing info', 'Please select a medication and dosage.'); return; }
-    if (times.length === 0) { Alert.alert('Missing info', 'Please select at least one time.'); return; }
+    if (!selectedMed || !selectedDosage) {
+      Alert.alert('Missing info', 'Please select a medication and dosage.'); return;
+    }
+    if (times.length === 0) {
+      Alert.alert('Missing info', 'Please select at least one time.'); return;
+    }
+    if (!profile) return;
 
     setLoading(true);
     try {
@@ -76,20 +84,20 @@ export default function DoctorPrescribe() {
         name: selectedMed.name,
         dosage: selectedDosage,
         pillCount: parseInt(pillCount) || 1,
-        patientName: patientName.trim(),
-        patientEmail: patientEmail.trim().toLowerCase(),
+        patientName: profile.name,
+        patientEmail: profile.email,
         instructions,
         totalPills: parseInt(totalPills) || 30,
         remainingPills: parseInt(totalPills) || 30,
         times,
-        prescribedBy: doctorName,
-        doctorId: profile?.uid ?? '',
+        prescribedBy: profile.name,
+        doctorId: '',
       });
-      Alert.alert('Prescription sent!', `${selectedMed.name} added to ${patientName}'s schedule.`, [
-        { text: 'OK', onPress: () => router.back() },
+      Alert.alert('Added!', `${selectedMed.name} has been added to your schedule.`, [
+        { text: 'OK', onPress: reset },
       ]);
     } catch {
-      Alert.alert('Error', 'Failed to submit prescription. Please try again.');
+      Alert.alert('Error', 'Failed to add medication. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -98,30 +106,17 @@ export default function DoctorPrescribe() {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scroll}>
-        <Text style={styles.title}>New Prescription</Text>
-        <Text style={styles.doctor}>{doctorName}</Text>
+        <Text style={styles.title}>Add Medication</Text>
+        <Text style={styles.subtitle}>Log a medication to your daily schedule</Text>
 
-        {/* Patient info */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Patient</Text>
-          <Text style={styles.label}>Full Name</Text>
-          <TextInput style={styles.input} placeholder="Patient's full name" placeholderTextColor="#94A3B8"
-            value={patientName} onChangeText={setPatientName} autoCapitalize="words" />
-          <Text style={styles.label}>Email</Text>
-          <TextInput style={styles.input} placeholder="patient@example.com" placeholderTextColor="#94A3B8"
-            value={patientEmail} onChangeText={setPatientEmail}
-            autoCapitalize="none" keyboardType="email-address" />
-        </View>
-
-        {/* Medication picker */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Medication</Text>
 
           {selectedMed ? (
-            <View style={styles.selectedMedRow}>
-              <View style={styles.selectedMedInfo}>
-                <Text style={styles.selectedMedName}>{selectedMed.name}</Text>
-                <Text style={styles.selectedMedCat}>{selectedCategory}</Text>
+            <View style={styles.selectedRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.selectedName}>{selectedMed.name}</Text>
+                <Text style={styles.selectedCat}>{selectedCategory}</Text>
               </View>
               <TouchableOpacity onPress={() => { setSelectedMed(null); setSelectedDosage(''); setInstructions(''); }}>
                 <Text style={styles.changeBtn}>Change</Text>
@@ -130,7 +125,7 @@ export default function DoctorPrescribe() {
           ) : (
             <>
               <Text style={styles.label}>Category</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
                 {MEDICATION_CATEGORIES.map(cat => (
                   <TouchableOpacity
                     key={cat.label}
@@ -147,9 +142,9 @@ export default function DoctorPrescribe() {
               {selectedCategory && (
                 <>
                   <Text style={styles.label}>{selectedCategory}</Text>
-                  <View style={styles.medList}>
+                  <View style={{ gap: 8, marginTop: 4 }}>
                     {categoryMeds.map(med => (
-                      <TouchableOpacity key={med.name} style={styles.medItem} onPress={() => selectMed(med)} activeOpacity={0.7}>
+                      <TouchableOpacity key={med.name} style={styles.medItem} onPress={() => selectMed(med)}>
                         <Text style={styles.medItemName}>{med.name}</Text>
                         <Text style={styles.medItemDosages}>{med.commonDosages.join(' · ')}</Text>
                       </TouchableOpacity>
@@ -163,7 +158,7 @@ export default function DoctorPrescribe() {
           {selectedMed && (
             <>
               <Text style={styles.label}>Dosage</Text>
-              <View style={styles.chipGrid}>
+              <View style={styles.chipRow}>
                 {selectedMed.commonDosages.map(d => (
                   <TouchableOpacity
                     key={d}
@@ -177,10 +172,9 @@ export default function DoctorPrescribe() {
           )}
         </View>
 
-        {/* Schedule */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Schedule</Text>
-          <View style={styles.chipGrid}>
+          <View style={styles.chipRow}>
             {times.map(t => (
               <TouchableOpacity key={t} style={styles.chipSelected} onPress={() => removeTime(t)}>
                 <Text style={styles.chipTextSelected}>{t}  ✕</Text>
@@ -218,28 +212,28 @@ export default function DoctorPrescribe() {
           </Modal>
         </View>
 
-        {/* Supply */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Supply</Text>
           <View style={styles.row}>
-            <View style={styles.halfField}>
+            <View style={{ flex: 1 }}>
               <Text style={styles.label}>Pills per dose</Text>
-              <TextInput style={styles.input} value={pillCount} onChangeText={setPillCount} keyboardType="numeric" placeholderTextColor="#94A3B8" />
+              <TextInput style={styles.input} value={pillCount} onChangeText={setPillCount}
+                keyboardType="numeric" placeholderTextColor="#94A3B8" />
             </View>
-            <View style={styles.halfField}>
+            <View style={{ flex: 1 }}>
               <Text style={styles.label}>Total pills</Text>
-              <TextInput style={styles.input} value={totalPills} onChangeText={setTotalPills} keyboardType="numeric" placeholderTextColor="#94A3B8" />
+              <TextInput style={styles.input} value={totalPills} onChangeText={setTotalPills}
+                keyboardType="numeric" placeholderTextColor="#94A3B8" />
             </View>
           </View>
         </View>
 
-        {/* Instructions */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Instructions</Text>
           <TextInput
             style={[styles.input, { height: 80, textAlignVertical: 'top' }]}
             multiline
-            placeholder="Special instructions for patient"
+            placeholder="Any special instructions"
             placeholderTextColor="#94A3B8"
             value={instructions}
             onChangeText={setInstructions}
@@ -247,7 +241,7 @@ export default function DoctorPrescribe() {
         </View>
 
         <TouchableOpacity style={[styles.submitBtn, loading && { opacity: 0.6 }]} onPress={submit} disabled={loading}>
-          {loading ? <ActivityIndicator color="#FFF" /> : <Text style={styles.submitText}>Send Prescription</Text>}
+          {loading ? <ActivityIndicator color="#FFF" /> : <Text style={styles.submitText}>Add to My Schedule</Text>}
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -255,51 +249,56 @@ export default function DoctorPrescribe() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FAF5FF' },
+  container: { flex: 1, backgroundColor: '#EFF6FF' },
   scroll: { padding: 20, paddingBottom: 48 },
-  title: { fontSize: 28, fontWeight: '800', color: '#581C87', marginBottom: 2 },
-  doctor: { fontSize: 13, color: '#9333EA', fontWeight: '600', marginBottom: 24 },
-  section: { backgroundColor: '#FFF', borderRadius: 20, padding: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
-  sectionTitle: { fontSize: 15, fontWeight: '800', color: '#581C87', marginBottom: 12 },
+  title: { fontSize: 28, fontWeight: '800', color: '#1E3A5F', marginBottom: 2 },
+  subtitle: { fontSize: 13, color: '#64748B', marginBottom: 20 },
+  section: {
+    backgroundColor: '#FFF', borderRadius: 20, padding: 16, marginBottom: 16,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
+  },
+  sectionTitle: { fontSize: 15, fontWeight: '800', color: '#1E3A5F', marginBottom: 12 },
   label: { fontSize: 12, fontWeight: '600', color: '#64748B', marginBottom: 6, marginTop: 10 },
-  input: { backgroundColor: '#FAF5FF', borderRadius: 12, padding: 13, fontSize: 15, color: '#1E3A5F', borderWidth: 1, borderColor: '#E2E8F0' },
-  categoryScroll: { marginBottom: 4 },
+  input: {
+    backgroundColor: '#EFF6FF', borderRadius: 12, padding: 13,
+    fontSize: 15, color: '#1E3A5F', borderWidth: 1, borderColor: '#E2E8F0',
+  },
   catChip: {
     alignItems: 'center', paddingVertical: 10, paddingHorizontal: 14,
-    borderRadius: 14, backgroundColor: '#F3E8FF', marginRight: 8, minWidth: 80,
-    borderWidth: 1.5, borderColor: '#E9D5FF',
+    borderRadius: 14, backgroundColor: '#EFF6FF', marginRight: 8, minWidth: 80,
+    borderWidth: 1.5, borderColor: '#DBEAFE',
   },
-  catChipSelected: { backgroundColor: '#9333EA', borderColor: '#9333EA' },
+  catChipSelected: { backgroundColor: '#2563EB', borderColor: '#2563EB' },
   catEmoji: { fontSize: 18, marginBottom: 3 },
-  catLabel: { fontSize: 11, fontWeight: '600', color: '#9333EA', textAlign: 'center' },
+  catLabel: { fontSize: 11, fontWeight: '600', color: '#2563EB', textAlign: 'center' },
   catLabelSelected: { color: '#FFF' },
-  medList: { gap: 8, marginTop: 4 },
   medItem: {
-    backgroundColor: '#FAF5FF', borderRadius: 12, padding: 12,
-    borderWidth: 1, borderColor: '#E9D5FF',
+    backgroundColor: '#EFF6FF', borderRadius: 12, padding: 12,
+    borderWidth: 1, borderColor: '#DBEAFE',
   },
-  medItemName: { fontSize: 15, fontWeight: '700', color: '#581C87' },
+  medItemName: { fontSize: 15, fontWeight: '700', color: '#1E3A5F' },
   medItemDosages: { fontSize: 11, color: '#94A3B8', marginTop: 2 },
-  selectedMedRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#F3E8FF', borderRadius: 12, padding: 12 },
-  selectedMedInfo: { flex: 1 },
-  selectedMedName: { fontSize: 16, fontWeight: '700', color: '#581C87' },
-  selectedMedCat: { fontSize: 11, color: '#9333EA', marginTop: 2 },
-  changeBtn: { fontSize: 13, color: '#9333EA', fontWeight: '700' },
-  chipGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
-  chip: { borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14, backgroundColor: '#F3E8FF', borderWidth: 1, borderColor: '#E9D5FF' },
-  chipSelected: { backgroundColor: '#9333EA', borderColor: '#9333EA' },
-  chipText: { color: '#9333EA', fontWeight: '600', fontSize: 13 },
+  selectedRow: {
+    flexDirection: 'row', alignItems: 'center', backgroundColor: '#EFF6FF',
+    borderRadius: 12, padding: 12,
+  },
+  selectedName: { fontSize: 16, fontWeight: '700', color: '#1E3A5F' },
+  selectedCat: { fontSize: 11, color: '#2563EB', marginTop: 2 },
+  changeBtn: { fontSize: 13, color: '#2563EB', fontWeight: '700' },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
+  chip: { borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14, backgroundColor: '#EFF6FF', borderWidth: 1, borderColor: '#DBEAFE' },
+  chipSelected: { backgroundColor: '#2563EB', borderColor: '#2563EB' },
+  chipText: { color: '#2563EB', fontWeight: '600', fontSize: 13 },
   chipTextSelected: { color: '#FFF' },
   row: { flexDirection: 'row', gap: 12 },
-  halfField: { flex: 1 },
-  submitBtn: { backgroundColor: '#9333EA', borderRadius: 18, padding: 18, alignItems: 'center', marginTop: 8 },
+  submitBtn: { backgroundColor: '#2563EB', borderRadius: 18, padding: 18, alignItems: 'center', marginTop: 8 },
   submitText: { color: '#FFF', fontSize: 18, fontWeight: '700' },
-  addTimeBtn: { borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14, backgroundColor: '#F3E8FF', borderWidth: 1.5, borderColor: '#9333EA', borderStyle: 'dashed' },
-  addTimeBtnText: { color: '#9333EA', fontWeight: '700', fontSize: 13 },
+  addTimeBtn: { borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14, backgroundColor: '#EFF6FF', borderWidth: 1.5, borderColor: '#2563EB', borderStyle: 'dashed' },
+  addTimeBtnText: { color: '#2563EB', fontWeight: '700', fontSize: 13 },
   modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
   modalBox: { backgroundColor: '#FFF', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 32 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#E2E8F0' },
-  modalTitle: { fontSize: 16, fontWeight: '700', color: '#581C87' },
+  modalTitle: { fontSize: 16, fontWeight: '700', color: '#1E3A5F' },
   modalCancel: { fontSize: 15, color: '#94A3B8' },
-  modalDone: { fontSize: 15, fontWeight: '700', color: '#9333EA' },
+  modalDone: { fontSize: 15, fontWeight: '700', color: '#2563EB' },
 });

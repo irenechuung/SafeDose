@@ -4,38 +4,68 @@ import {
 } from 'react-native';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useApp } from '@/context/AppContext';
+
+const LAST_EMAIL_KEY = '@safedose/lastEmail';
 
 export default function Login() {
   const router = useRouter();
   const { signIn, firebaseUser } = useApp();
+  const [savedEmail, setSavedEmail] = useState<string | null>(null);
+  const [switchingAccount, setSwitchingAccount] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    AsyncStorage.getItem(LAST_EMAIL_KEY).then(val => {
+      if (val) setSavedEmail(val);
+    });
+  }, []);
+
+  useEffect(() => {
     if (!firebaseUser) return;
     router.replace('/');
   }, [firebaseUser]);
 
+  const usingSavedEmail = !!savedEmail && !switchingAccount;
+  const displayEmail = usingSavedEmail ? savedEmail : email;
+
   const submit = async () => {
-    if (!email || !password) { setError('Please fill in all fields.'); return; }
+    const emailToUse = usingSavedEmail ? savedEmail! : email.trim();
+    if (!usingSavedEmail && (!emailToUse || !emailToUse.includes('@'))) {
+      setError('Please enter a valid email.'); return;
+    }
+    if (!password) { setError('Please enter your password.'); return; }
+
     setLoading(true);
     setError('');
     try {
-      await signIn(email.trim(), password);
-      // navigation handled by useEffect above once state is ready
+      await signIn(emailToUse, password);
+      await AsyncStorage.setItem(LAST_EMAIL_KEY, emailToUse.toLowerCase());
+      router.replace('/');
     } catch (e: any) {
-      const msg = e.code === 'auth/invalid-credential' || e.code === 'auth/wrong-password'
-        ? 'Incorrect email or password.'
-        : e.code === 'auth/user-not-found'
-        ? 'No account found with this email.'
-        : 'Sign in failed. Please try again.';
+      const msg =
+        e.code === 'auth/invalid-credential' || e.code === 'auth/wrong-password'
+          ? 'Incorrect password.'
+          : e.code === 'auth/user-not-found'
+          ? 'No account found with this email.'
+          : e.code === 'auth/network-request-failed'
+          ? 'Network error. Check your connection.'
+          : 'Sign in failed. Please try again.';
       setError(msg);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSwitchAccount = () => {
+    setSwitchingAccount(true);
+    setEmail('');
+    setPassword('');
+    setError('');
   };
 
   return (
@@ -49,19 +79,38 @@ export default function Login() {
           <Text style={styles.subtitle}>The right pill, at the right time</Text>
 
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Welcome back</Text>
+            <Text style={styles.cardTitle}>
+              {usingSavedEmail ? 'Welcome back' : 'Sign in'}
+            </Text>
 
-            <Text style={styles.label}>Email</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="you@example.com"
-              placeholderTextColor="#94A3B8"
-              value={email}
-              onChangeText={v => { setEmail(v); setError(''); }}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              returnKeyType="next"
-            />
+            {usingSavedEmail ? (
+              <View style={styles.accountRow}>
+                <View style={styles.accountBadge}>
+                  <Text style={styles.accountAvatar}>
+                    {savedEmail!.charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+                <Text style={styles.accountEmail} numberOfLines={1}>{savedEmail}</Text>
+                <TouchableOpacity onPress={handleSwitchAccount} style={styles.switchBtn}>
+                  <Text style={styles.switchBtnText}>Switch</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <>
+                <Text style={styles.label}>Email</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="you@example.com"
+                  placeholderTextColor="#94A3B8"
+                  value={email}
+                  onChangeText={v => { setEmail(v); setError(''); }}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  returnKeyType="next"
+                  autoFocus={!usingSavedEmail && switchingAccount}
+                />
+              </>
+            )}
 
             <Text style={styles.label}>Password</Text>
             <TextInput
@@ -73,6 +122,7 @@ export default function Login() {
               secureTextEntry
               returnKeyType="done"
               onSubmitEditing={submit}
+              autoFocus={usingSavedEmail}
             />
 
             {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -82,7 +132,10 @@ export default function Login() {
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.linkRow} onPress={() => router.replace('/signup')}>
-              <Text style={styles.link}>Don't have an account? <Text style={styles.linkBold}>Sign up</Text></Text>
+              <Text style={styles.link}>
+                {"Don't have an account? "}
+                <Text style={styles.linkBold}>Sign up</Text>
+              </Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -109,7 +162,19 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.07, shadowRadius: 16, elevation: 4,
   },
-  cardTitle: { fontSize: 22, fontWeight: '800', color: '#1E3A5F', marginBottom: 24 },
+  cardTitle: { fontSize: 22, fontWeight: '800', color: '#1E3A5F', marginBottom: 20 },
+  accountRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: '#EFF6FF', borderRadius: 14, padding: 12, marginBottom: 16,
+  },
+  accountBadge: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: '#2563EB', alignItems: 'center', justifyContent: 'center',
+  },
+  accountAvatar: { color: '#FFF', fontWeight: '700', fontSize: 16 },
+  accountEmail: { flex: 1, fontSize: 14, color: '#1E3A5F', fontWeight: '600' },
+  switchBtn: { backgroundColor: '#DBEAFE', borderRadius: 8, paddingVertical: 4, paddingHorizontal: 10 },
+  switchBtnText: { fontSize: 12, color: '#2563EB', fontWeight: '700' },
   label: { fontSize: 13, fontWeight: '600', color: '#64748B', marginBottom: 6 },
   input: {
     backgroundColor: '#F8FAFF', borderRadius: 12, padding: 14,
