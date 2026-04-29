@@ -1,5 +1,5 @@
 import { View, Text, StyleSheet, SafeAreaView, ScrollView } from 'react-native';
-import { useApp, DoseLog } from '@/context/AppContext';
+import { useApp, type DoseLog } from '@/context/AppContext';
 
 export default function CaregiverHistory() {
   const { doseLogs } = useApp();

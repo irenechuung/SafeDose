@@ -1,17 +1,17 @@
 import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView, Alert } from 'react-native';
-import { useApp, DoseLog } from '@/context/AppContext';
+import { useApp, type DoseLog } from '@/context/AppContext';
 import { useRouter } from 'expo-router';
 
 export default function PatientHome() {
   const router = useRouter();
-  const { medications, doseLogs, logDose } = useApp();
+  const { profile, medications, doseLogs, logDose } = useApp();
   const today = new Date().toISOString().split('T')[0];
   const todayLogs = doseLogs.filter(l => l.date === today);
   const takenCount = todayLogs.filter(l => l.status === 'taken').length;
   const total = todayLogs.length;
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-  const patientName = medications[0]?.patientName?.split(' ')[0] ?? 'there';
+  const firstName = profile?.name?.split(' ')[0] ?? 'there';
 
   const handleTake = (log: DoseLog) => {
     Alert.alert(
@@ -31,7 +31,7 @@ export default function PatientHome() {
           <View style={styles.headerRow}>
             <View>
               <Text style={styles.greeting}>{greeting},</Text>
-              <Text style={styles.name}>{patientName} 👋</Text>
+              <Text style={styles.name}>{firstName} 👋</Text>
               <Text style={styles.date}>
                 {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
               </Text>
@@ -52,6 +52,13 @@ export default function PatientHome() {
 
         <Text style={styles.sectionTitle}>{"Today's Medications"}</Text>
 
+        {todayLogs.length === 0 && (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyText}>No medications scheduled for today.</Text>
+            <Text style={styles.emptySubtext}>Your doctor will add prescriptions here.</Text>
+          </View>
+        )}
+
         {todayLogs.map(log => {
           const med = medications.find(m => m.id === log.medicationId);
           return (
@@ -64,7 +71,6 @@ export default function PatientHome() {
                 <Text style={styles.medTime}>⏰ {log.scheduledTime}</Text>
                 {med?.instructions ? <Text style={styles.medNote}>{med.instructions}</Text> : null}
               </View>
-
               {log.status === 'taken' ? (
                 <View style={styles.takenBadge}>
                   <Text style={styles.takenText}>✓ Taken{'\n'}{log.takenAt}</Text>
@@ -102,6 +108,9 @@ const styles = StyleSheet.create({
   progressBar: { height: 8, backgroundColor: '#1D4ED8', borderRadius: 4, marginTop: 12 },
   progressFill: { height: 8, backgroundColor: '#93C5FD', borderRadius: 4 },
   sectionTitle: { fontSize: 18, fontWeight: '700', color: '#1E3A5F', marginBottom: 12 },
+  emptyCard: { backgroundColor: '#FFF', borderRadius: 16, padding: 24, alignItems: 'center' },
+  emptyText: { fontSize: 16, fontWeight: '600', color: '#1E3A5F' },
+  emptySubtext: { fontSize: 13, color: '#94A3B8', marginTop: 4 },
   medCard: {
     backgroundColor: '#FFF', borderRadius: 16, padding: 16, marginBottom: 12,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

@@ -11,6 +11,7 @@ export default function CaregiverDashboard() {
   const total = todayLogs.length;
   const missedLogs = doseLogs.filter(l => l.status === 'missed');
   const lowMeds = medications.filter(m => m.remainingPills < 15);
+  const patientName = medications[0]?.patientName ?? 'Your patient';
 
   const dotColor = (status: string) =>
     status === 'taken' ? '#16A34A' : status === 'missed' ? '#DC2626' : '#94A3B8';
@@ -21,7 +22,7 @@ export default function CaregiverDashboard() {
         <View style={styles.headerRow}>
           <View>
             <Text style={styles.title}>Caregiver View</Text>
-            <Text style={styles.subtitle}>Margaret Wilson · Your mother</Text>
+            <Text style={styles.subtitle}>{patientName} · Your patient</Text>
           </View>
           <TouchableOpacity style={styles.switchBtn} onPress={() => router.replace('/')}>
             <Text style={styles.switchText}>Switch Role</Text>
