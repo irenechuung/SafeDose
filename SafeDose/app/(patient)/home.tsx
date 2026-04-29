@@ -17,7 +17,6 @@ Notifications.setNotificationHandler({
 });
 
 function parseToDate(timeStr: string): Date {
-  // Normalize all whitespace variants (iOS uses U+202F narrow no-break space before AM/PM)
   const parts = timeStr.trim().split(/\s+/);
   const [h, m] = parts[0].split(':').map(Number);
   const period = parts[1]?.toUpperCase();
@@ -38,8 +37,17 @@ function getDoseStatus(log: DoseLog): DoseStatus {
   const now = new Date();
   const diffMs = now.getTime() - scheduled.getTime();
   if (diffMs < -60_000) return 'upcoming';
-  if (diffMs <= 600_000) return 'due';     // up to 10 min after
+  if (diffMs <= 600_000) return 'due';
   return 'overdue';
+}
+
+function formatDate(dateStr: string): string {
+  const d = new Date(dateStr + 'T12:00:00');
+  const today = new Date().toISOString().split('T')[0];
+  const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+  if (dateStr === today) return 'Today';
+  if (dateStr === yesterday) return 'Yesterday';
+  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 }
 
 export default function PatientHome() {
@@ -57,12 +65,10 @@ export default function PatientHome() {
   const [tick, setTick] = useState(0);
   const notifScheduled = useRef<string>('');
 
-  // Request notification permissions once
   useEffect(() => {
     Notifications.requestPermissionsAsync();
   }, []);
 
-  // Schedule push notifications whenever today's pending logs change
   useEffect(() => {
     const pending = todayLogs.filter(l => l.status === 'pending');
     const key = pending.map(l => l.id).join(',');
@@ -89,7 +95,6 @@ export default function PatientHome() {
     schedule();
   }, [todayLogs]);
 
-  // Poll every 30s for in-app alarm
   useEffect(() => {
     const id = setInterval(() => setTick(t => t + 1), 10_000);
     return () => clearInterval(id);
@@ -117,6 +122,21 @@ export default function PatientHome() {
     setSnoozedUntil(prev => ({ ...prev, [alarmLog.id]: Date.now() + 15 * 60_000 }));
     setAlarmLog(null);
   };
+
+  // Build history: all logs sorted by date desc, excluding today
+  const pastLogs = doseLogs.filter(l => l.date !== today);
+  const sortedPast = [...pastLogs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const groupedPast: Record<string, DoseLog[]> = {};
+  sortedPast.forEach(log => {
+    groupedPast[log.date] = [...(groupedPast[log.date] ?? []), log];
+  });
+
+  const resolved = doseLogs.filter(l => l.status !== 'pending');
+  const takenResolved = resolved.filter(l => l.status === 'taken').length;
+  const adherencePct = resolved.length > 0 ? Math.round((takenResolved / resolved.length) * 100) : 100;
+
+  const dotColor = (status: string) =>
+    status === 'taken' ? '#16A34A' : status === 'missed' ? '#DC2626' : '#94A3B8';
 
   return (
     <SafeAreaView style={styles.container}>
@@ -153,31 +173,33 @@ export default function PatientHome() {
       </Modal>
 
       <ScrollView contentContainerStyle={styles.scroll}>
+        {/* Header */}
         <View style={styles.header}>
-          <View style={styles.headerRow}>
-            <View>
-              <Text style={styles.greeting}>{greeting},</Text>
-              <Text style={styles.name}>{firstName} 👋</Text>
-              <Text style={styles.date}>
-                {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-              </Text>
-            </View>
-          </View>
+          <Text style={styles.greeting}>{greeting},</Text>
+          <Text style={styles.name}>{firstName} 👋</Text>
+          <Text style={styles.date}>
+            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+          </Text>
         </View>
 
+        {/* Today's progress */}
         <View style={styles.progressCard}>
           <Text style={styles.progressLabel}>{"Today's Progress"}</Text>
           <Text style={styles.progressCount}>{takenCount} / {total} doses taken</Text>
           <View style={styles.progressBar}>
             <View style={[styles.progressFill, { width: `${Math.round(total > 0 ? (takenCount / total) * 100 : 0)}%` as `${number}%` }]} />
           </View>
+          {resolved.length > 0 && (
+            <Text style={styles.progressAdherence}>{adherencePct}% overall adherence</Text>
+          )}
         </View>
 
-        <Text style={styles.sectionTitle}>{"Today's Medications"}</Text>
+        {/* Today's doses */}
+        <Text style={styles.sectionTitle}>Today</Text>
 
         {todayLogs.length === 0 && (
           <View style={styles.emptyCard}>
-            <Text style={styles.emptyText}>No medications scheduled for today.</Text>
+            <Text style={styles.emptyText}>No medications scheduled today.</Text>
             <Text style={styles.emptySubtext}>Add medications using the Add Med tab.</Text>
           </View>
         )}
@@ -193,6 +215,11 @@ export default function PatientHome() {
                   <Text style={styles.medDosage}>{med.dosage} · {med.pillCount} pill{med.pillCount > 1 ? 's' : ''}</Text>
                 )}
                 <Text style={styles.medTime}>⏰ {log.scheduledTime}</Text>
+                {med?.remainingPills !== undefined && (
+                  <Text style={[styles.pillsLeft, med.remainingPills < 15 && styles.pillsLeftLow]}>
+                    {med.remainingPills} pills remaining
+                  </Text>
+                )}
                 {med?.instructions ? <Text style={styles.medNote}>{med.instructions}</Text> : null}
               </View>
               {status === 'taken' ? (
@@ -219,6 +246,50 @@ export default function PatientHome() {
             </View>
           );
         })}
+
+        {/* Past history */}
+        {Object.keys(groupedPast).length > 0 && (
+          <>
+            <View style={styles.historyDivider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerLabel}>Past Doses</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            {Object.entries(groupedPast).map(([date, logs]) => {
+              const dayResolved = logs.filter(l => l.status !== 'pending');
+              const dayTaken = logs.filter(l => l.status === 'taken').length;
+              const dayPct = dayResolved.length > 0 ? Math.round((dayTaken / dayResolved.length) * 100) : null;
+
+              return (
+                <View key={date}>
+                  <View style={styles.dateRow}>
+                    <Text style={styles.dateHeader}>{formatDate(date)}</Text>
+                    {dayPct !== null && (
+                      <Text style={[styles.datePct, {
+                        color: dayPct >= 80 ? '#16A34A' : dayPct >= 50 ? '#F59E0B' : '#DC2626',
+                      }]}>
+                        {dayPct}%
+                      </Text>
+                    )}
+                  </View>
+                  {logs.map(log => (
+                    <View key={log.id} style={styles.pastRow}>
+                      <View style={[styles.pastDot, { backgroundColor: dotColor(log.status) }]} />
+                      <View style={styles.pastInfo}>
+                        <Text style={styles.pastMedName}>{log.medicationName}</Text>
+                        <Text style={styles.pastTime}>{log.scheduledTime}</Text>
+                      </View>
+                      <Text style={[styles.pastStatus, { color: dotColor(log.status) }]}>
+                        {log.status === 'taken' ? `✓ ${log.takenAt}` : log.status === 'missed' ? '✗ Missed' : '○ Pending'}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              );
+            })}
+          </>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -226,9 +297,8 @@ export default function PatientHome() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#EFF6FF' },
-  scroll: { padding: 20 },
+  scroll: { padding: 20, paddingBottom: 48 },
   header: { marginBottom: 20 },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   greeting: { fontSize: 18, color: '#64748B' },
   name: { fontSize: 32, fontWeight: '800', color: '#1E3A5F' },
   date: { fontSize: 13, color: '#94A3B8', marginTop: 4 },
@@ -237,8 +307,9 @@ const styles = StyleSheet.create({
   progressCount: { color: '#FFF', fontSize: 26, fontWeight: '800', marginTop: 4 },
   progressBar: { height: 8, backgroundColor: '#1D4ED8', borderRadius: 4, marginTop: 12 },
   progressFill: { height: 8, backgroundColor: '#93C5FD', borderRadius: 4 },
+  progressAdherence: { color: '#BFDBFE', fontSize: 12, marginTop: 8 },
   sectionTitle: { fontSize: 18, fontWeight: '700', color: '#1E3A5F', marginBottom: 12 },
-  emptyCard: { backgroundColor: '#FFF', borderRadius: 16, padding: 24, alignItems: 'center' },
+  emptyCard: { backgroundColor: '#FFF', borderRadius: 16, padding: 24, alignItems: 'center', marginBottom: 8 },
   emptyText: { fontSize: 16, fontWeight: '600', color: '#1E3A5F' },
   emptySubtext: { fontSize: 13, color: '#94A3B8', marginTop: 4, textAlign: 'center' },
   medCard: {
@@ -251,6 +322,8 @@ const styles = StyleSheet.create({
   medName: { fontSize: 20, fontWeight: '700', color: '#1E3A5F' },
   medDosage: { fontSize: 13, color: '#2563EB', fontWeight: '600', marginTop: 2 },
   medTime: { fontSize: 13, color: '#64748B', marginTop: 4 },
+  pillsLeft: { fontSize: 12, color: '#64748B', marginTop: 2 },
+  pillsLeftLow: { color: '#F59E0B', fontWeight: '600' },
   medNote: { fontSize: 12, color: '#94A3B8', marginTop: 2, fontStyle: 'italic' },
   takeButton: { backgroundColor: '#2563EB', borderRadius: 12, paddingVertical: 12, paddingHorizontal: 16 },
   takeButtonText: { color: '#FFF', fontWeight: '700', fontSize: 14 },
@@ -263,7 +336,21 @@ const styles = StyleSheet.create({
   missedBadge: { backgroundColor: '#FEE2E2', borderRadius: 12, paddingVertical: 8, paddingHorizontal: 12 },
   missedText: { color: '#DC2626', fontWeight: '700', fontSize: 12 },
 
-  // Full-screen alarm
+  // History section
+  historyDivider: { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 20 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: '#E2E8F0' },
+  dividerLabel: { fontSize: 12, fontWeight: '700', color: '#94A3B8', textTransform: 'uppercase', letterSpacing: 1 },
+  dateRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, marginTop: 12 },
+  dateHeader: { fontSize: 13, fontWeight: '600', color: '#64748B' },
+  datePct: { fontSize: 13, fontWeight: '700' },
+  pastRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', borderRadius: 12, padding: 12, marginBottom: 6 },
+  pastDot: { width: 8, height: 8, borderRadius: 4, marginRight: 10 },
+  pastInfo: { flex: 1 },
+  pastMedName: { fontSize: 14, fontWeight: '600', color: '#1E3A5F' },
+  pastTime: { fontSize: 11, color: '#94A3B8', marginTop: 2 },
+  pastStatus: { fontSize: 12, fontWeight: '600' },
+
+  // Alarm modal
   alarmScreen: {
     flex: 1, backgroundColor: '#1E3A5F',
     alignItems: 'center', justifyContent: 'center', padding: 32,

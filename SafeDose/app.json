@@ -39,7 +39,14 @@
           }
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "SafeDose needs camera access to scan and identify your medications.",
+          "photosPermission": "SafeDose needs photo library access to add medication photos."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
