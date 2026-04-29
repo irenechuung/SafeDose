@@ -142,6 +142,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, [firebaseUser, role]);
 
+  // Each time medications or doseLogs update for a patient, ensure today's logs exist
+  useEffect(() => {
+    if (role !== 'patient' || !firebaseUser || medications.length === 0) return;
+
+    const today = new Date().toISOString().split('T')[0];
+
+    const missing: Promise<void>[] = [];
+    for (const med of medications) {
+      for (const time of med.times) {
+        const exists = doseLogs.some(
+          l => l.medicationId === med.id && l.scheduledTime === time && l.date === today
+        );
+        if (!exists) {
+          missing.push(
+            addDoc(collection(db, 'doseLogs'), {
+              medicationId: med.id,
+              medicationName: med.name,
+              scheduledTime: time,
+              takenAt: null,
+              date: today,
+              status: 'pending',
+              patientEmail: med.patientEmail,
+              patientUid: med.patientUid,
+            }).then(() => {})
+          );
+        }
+      }
+    }
+    if (missing.length > 0) Promise.all(missing);
+  }, [medications, doseLogs, role, firebaseUser]);
+
   // Caregiver: subscribe to patients list
   useEffect(() => {
     unsubPatients.current?.();
