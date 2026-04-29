@@ -1,6 +1,6 @@
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  SafeAreaView, ScrollView, Modal,
+  SafeAreaView, ScrollView, Modal, Alert,
 } from 'react-native';
 import { useApp, type DoseLog } from '@/context/AppContext';
 import { useEffect, useState, useRef } from 'react';
@@ -51,7 +51,18 @@ function formatDate(dateStr: string): string {
 }
 
 export default function PatientHome() {
-  const { profile, medications, doseLogs, logDose } = useApp();
+  const { profile, medications, doseLogs, logDose, deleteMedication } = useApp();
+
+  const handleRemoveMed = (medicationId: string, name: string) => {
+    Alert.alert(
+      'Remove Medication',
+      `Remove ${name} from your schedule? This will also delete all its dose logs.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Remove', style: 'destructive', onPress: () => deleteMedication(medicationId) },
+      ]
+    );
+  };
   const today = new Date().toISOString().split('T')[0];
   const todayLogs = doseLogs.filter(l => l.date === today);
   const takenCount = todayLogs.filter(l => l.status === 'taken').length;
@@ -210,7 +221,14 @@ export default function PatientHome() {
           return (
             <View key={log.id} style={[styles.medCard, status === 'taken' && styles.medCardTaken]}>
               <View style={styles.medInfo}>
-                <Text style={styles.medName}>{log.medicationName}</Text>
+                <View style={styles.medNameRow}>
+                  <Text style={styles.medName}>{log.medicationName}</Text>
+                  <TouchableOpacity
+                    onPress={() => handleRemoveMed(log.medicationId, log.medicationName)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Text style={styles.removeBtn}>✕</Text>
+                  </TouchableOpacity>
+                </View>
                 {med && (
                   <Text style={styles.medDosage}>{med.dosage} · {med.pillCount} pill{med.pillCount > 1 ? 's' : ''}</Text>
                 )}
@@ -319,7 +337,9 @@ const styles = StyleSheet.create({
   },
   medCardTaken: { opacity: 0.6 },
   medInfo: { flex: 1, marginRight: 12 },
-  medName: { fontSize: 20, fontWeight: '700', color: '#1E3A5F' },
+  medNameRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginRight: -4 },
+  medName: { fontSize: 20, fontWeight: '700', color: '#1E3A5F', flex: 1 },
+  removeBtn: { fontSize: 14, color: '#CBD5E1', paddingLeft: 8 },
   medDosage: { fontSize: 13, color: '#2563EB', fontWeight: '600', marginTop: 2 },
   medTime: { fontSize: 13, color: '#64748B', marginTop: 4 },
   pillsLeft: { fontSize: 12, color: '#64748B', marginTop: 2 },
