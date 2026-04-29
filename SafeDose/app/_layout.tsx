@@ -16,10 +16,8 @@ export default function RootLayout() {
           <Stack.Screen name="index" options={{ headerShown: false }} />
           <Stack.Screen name="login" options={{ headerShown: false }} />
           <Stack.Screen name="signup" options={{ headerShown: false }} />
-          <Stack.Screen name="pending-verification" options={{ headerShown: false }} />
           <Stack.Screen name="(patient)" options={{ headerShown: false }} />
           <Stack.Screen name="(caregiver)" options={{ headerShown: false }} />
-          <Stack.Screen name="(doctor)" options={{ headerShown: false }} />
         </Stack>
         <StatusBar style="auto" />
       </ThemeProvider>
