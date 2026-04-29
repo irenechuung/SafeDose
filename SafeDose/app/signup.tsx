@@ -7,12 +7,11 @@ import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useApp } from '@/context/AppContext';
 
-type Role = 'patient' | 'caregiver' | 'doctor';
+type Role = 'patient' | 'caregiver';
 
-const ROLES = [
-  { id: 'patient' as Role, label: 'Patient', emoji: '💊', color: '#2563EB', bg: '#EFF6FF' },
-  { id: 'caregiver' as Role, label: 'Caregiver', emoji: '🫂', color: '#16A34A', bg: '#F0FDF4' },
-  { id: 'doctor' as Role, label: 'Doctor', emoji: '🩺', color: '#9333EA', bg: '#FAF5FF' },
+const ROLES: { id: Role; label: string; emoji: string; color: string; bg: string; desc: string }[] = [
+  { id: 'patient', label: 'Patient', emoji: '💊', color: '#2563EB', bg: '#EFF6FF', desc: 'Track and confirm your daily medications' },
+  { id: 'caregiver', label: 'Caregiver', emoji: '🫂', color: '#16A34A', bg: '#F0FDF4', desc: 'Monitor medications for your patients' },
 ];
 
 export default function Signup() {
@@ -22,9 +21,6 @@ export default function Signup() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<Role | null>(null);
-  const [licenseNumber, setLicenseNumber] = useState('');
-  const [npiNumber, setNpiNumber] = useState('');
-  const [monitoredEmail, setMonitoredEmail] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -33,33 +29,20 @@ export default function Signup() {
     if (!email.trim() || !email.includes('@')) { setError('Please enter a valid email.'); return; }
     if (password.length < 6) { setError('Password must be at least 6 characters.'); return; }
     if (!role) { setError('Please select your role.'); return; }
-    if (role === 'doctor' && (!licenseNumber.trim() || !npiNumber.trim())) {
-      setError('Doctors must enter their license and NPI numbers.'); return;
-    }
-    if (role === 'caregiver' && !monitoredEmail.trim()) {
-      setError("Please enter the email of the patient you're monitoring."); return;
-    }
 
     setLoading(true);
     setError('');
     try {
-      await signUp(email.trim(), password, name.trim(), role, {
-        licenseNumber: licenseNumber.trim() || undefined,
-        npiNumber: npiNumber.trim() || undefined,
-        monitoredPatientEmail: monitoredEmail.trim().toLowerCase() || undefined,
-      });
+      await signUp(email.trim(), password, name.trim(), role);
       await AsyncStorage.setItem('@safedose/lastEmail', email.trim().toLowerCase());
       router.replace('/');
     } catch (e: any) {
-      const msg = e.code === 'auth/email-already-in-use'
-        ? 'An account with this email already exists.'
-        : e.code === 'auth/weak-password'
-        ? 'Password is too weak.'
-        : e.code === 'auth/operation-not-allowed'
-        ? 'Email/password sign-in is not enabled. Enable it in Firebase Console → Authentication → Sign-in method.'
-        : e.code === 'auth/network-request-failed'
-        ? 'Network error. Check your internet connection.'
-        : `Sign up failed: ${e.message}`;
+      const msg =
+        e.code === 'auth/email-already-in-use' ? 'An account with this email already exists.' :
+        e.code === 'auth/weak-password' ? 'Password is too weak.' :
+        e.code === 'auth/operation-not-allowed' ? 'Email/password sign-in is not enabled in Firebase.' :
+        e.code === 'auth/network-request-failed' ? 'Network error. Check your connection.' :
+        `Sign up failed: ${e.message}`;
       setError(msg);
     } finally {
       setLoading(false);
@@ -91,41 +74,28 @@ export default function Signup() {
               value={password} onChangeText={v => { setPassword(v); setError(''); }} secureTextEntry />
 
             <Text style={styles.label}>I am a...</Text>
-            <View style={styles.roleRow}>
+            <View style={styles.roleCol}>
               {ROLES.map(r => (
                 <TouchableOpacity
                   key={r.id}
-                  style={[styles.roleChip, { borderColor: r.color, backgroundColor: role === r.id ? r.color : r.bg }]}
+                  style={[styles.roleCard, { borderColor: r.color, backgroundColor: role === r.id ? r.color : r.bg }]}
                   onPress={() => { setRole(r.id); setError(''); }}
                   activeOpacity={0.8}>
                   <Text style={styles.roleEmoji}>{r.emoji}</Text>
-                  <Text style={[styles.roleLabel, { color: role === r.id ? '#FFF' : r.color }]}>{r.label}</Text>
+                  <View style={styles.roleText}>
+                    <Text style={[styles.roleLabel, { color: role === r.id ? '#FFF' : r.color }]}>{r.label}</Text>
+                    <Text style={[styles.roleDesc, { color: role === r.id ? 'rgba(255,255,255,0.8)' : '#64748B' }]}>{r.desc}</Text>
+                  </View>
+                  {role === r.id && <Text style={styles.roleCheck}>✓</Text>}
                 </TouchableOpacity>
               ))}
             </View>
 
-            {role === 'doctor' && (
-              <View>
-                <View style={styles.verifyNote}>
-                  <Text style={styles.verifyNoteText}>🔒 Doctor accounts require verification before access is granted.</Text>
-                </View>
-                <Text style={styles.label}>Medical License Number</Text>
-                <TextInput style={styles.input} placeholder="e.g. MD-12345678" placeholderTextColor="#94A3B8"
-                  value={licenseNumber} onChangeText={v => { setLicenseNumber(v); setError(''); }}
-                  autoCapitalize="characters" />
-                <Text style={styles.label}>NPI Number</Text>
-                <TextInput style={styles.input} placeholder="10-digit NPI number" placeholderTextColor="#94A3B8"
-                  value={npiNumber} onChangeText={v => { setNpiNumber(v.replace(/\D/g, '')); setError(''); }}
-                  keyboardType="numeric" maxLength={10} />
-              </View>
-            )}
-
             {role === 'caregiver' && (
-              <View>
-                <Text style={styles.label}>Patient's Email (person you're monitoring)</Text>
-                <TextInput style={styles.input} placeholder="patient@example.com" placeholderTextColor="#94A3B8"
-                  value={monitoredEmail} onChangeText={v => { setMonitoredEmail(v); setError(''); }}
-                  autoCapitalize="none" keyboardType="email-address" />
+              <View style={styles.infoNote}>
+                <Text style={styles.infoNoteText}>
+                  After signing up, your patients will link to you using your email address.
+                </Text>
               </View>
             )}
 
@@ -168,17 +138,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFF', borderRadius: 12, padding: 14,
     fontSize: 16, color: '#1E3A5F', borderWidth: 1.5, borderColor: '#E2E8F0',
   },
-  roleRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
-  roleChip: {
-    flex: 1, alignItems: 'center', paddingVertical: 14, borderRadius: 16, borderWidth: 1.5,
+  roleCol: { gap: 10, marginTop: 4 },
+  roleCard: {
+    flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 16, borderWidth: 1.5, gap: 12,
   },
-  roleEmoji: { fontSize: 22, marginBottom: 4 },
-  roleLabel: { fontSize: 12, fontWeight: '700' },
-  verifyNote: {
-    backgroundColor: '#FEF9C3', borderRadius: 12, padding: 12, marginTop: 16,
-    borderLeftWidth: 3, borderLeftColor: '#EAB308',
+  roleEmoji: { fontSize: 28 },
+  roleText: { flex: 1 },
+  roleLabel: { fontSize: 15, fontWeight: '700' },
+  roleDesc: { fontSize: 12, marginTop: 2 },
+  roleCheck: { color: '#FFF', fontSize: 18, fontWeight: '700' },
+  infoNote: {
+    backgroundColor: '#F0FDF4', borderRadius: 12, padding: 12, marginTop: 12,
+    borderLeftWidth: 3, borderLeftColor: '#16A34A',
   },
-  verifyNoteText: { fontSize: 12, color: '#713F12', lineHeight: 18 },
+  infoNoteText: { fontSize: 12, color: '#14532D', lineHeight: 18 },
   error: { color: '#DC2626', fontSize: 13, marginTop: 12 },
   btn: { backgroundColor: '#2563EB', borderRadius: 14, padding: 16, alignItems: 'center', marginTop: 20 },
   btnText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
