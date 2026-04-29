@@ -8,19 +8,16 @@ import {
   User,
 } from 'firebase/auth';
 import {
-  doc, getDoc, setDoc, updateDoc, addDoc,
-  collection, query, where, onSnapshot,
+  doc, getDoc, setDoc, updateDoc, addDoc, deleteDoc,
+  collection, query, where, onSnapshot, getDocs,
 } from 'firebase/firestore';
 
 export type UserProfile = {
   uid: string;
   name: string;
   email: string;
-  role: 'patient' | 'caregiver' | 'doctor';
-  verified: boolean;
-  licenseNumber?: string;
-  npiNumber?: string;
-  monitoredPatientEmail?: string;
+  role: 'patient' | 'caregiver';
+  caregiverId?: string;
 };
 
 export type Medication = {
@@ -34,8 +31,8 @@ export type Medication = {
   totalPills: number;
   patientName: string;
   patientEmail: string;
-  prescribedBy: string;
-  doctorId: string;
+  patientUid: string;
+  photoUri?: string;
 };
 
 export type DoseLog = {
@@ -47,6 +44,13 @@ export type DoseLog = {
   date: string;
   status: 'taken' | 'missed' | 'pending';
   patientEmail: string;
+  patientUid: string;
+};
+
+export type PatientProfile = {
+  uid: string;
+  name: string;
+  email: string;
 };
 
 type AppContextType = {
@@ -54,21 +58,19 @@ type AppContextType = {
   profile: UserProfile | null;
   isLoading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (
-    email: string,
-    password: string,
-    name: string,
-    role: 'patient' | 'caregiver' | 'doctor',
-    extra?: { licenseNumber?: string; npiNumber?: string; monitoredPatientEmail?: string }
-  ) => Promise<void>;
+  signUp: (email: string, password: string, name: string, role: 'patient' | 'caregiver') => Promise<void>;
   signOut: () => Promise<void>;
-  verifyDoctor: (code: string) => Promise<boolean>;
-  role: 'patient' | 'caregiver' | 'doctor' | null;
-  setRole: (role: 'patient' | 'caregiver' | 'doctor') => void;
+  role: 'patient' | 'caregiver' | null;
+  setRole: (role: 'patient' | 'caregiver') => void;
   medications: Medication[];
   doseLogs: DoseLog[];
+  patients: PatientProfile[];
   logDose: (medicationId: string, scheduledTime: string) => Promise<void>;
   addMedication: (med: Omit<Medication, 'id'>) => Promise<void>;
+  updateMedication: (id: string, updates: Partial<Omit<Medication, 'id'>>) => Promise<void>;
+  deleteMedication: (id: string) => Promise<void>;
+  linkToCaregiver: (caregiverEmail: string) => Promise<void>;
+  unlinkCaregiver: () => Promise<void>;
 };
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -77,21 +79,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [role, setRoleState] = useState<'patient' | 'caregiver' | 'doctor' | null>(null);
+  const [role, setRoleState] = useState<'patient' | 'caregiver' | null>(null);
   const [medications, setMedications] = useState<Medication[]>([]);
   const [doseLogs, setDoseLogs] = useState<DoseLog[]>([]);
+  const [patients, setPatients] = useState<PatientProfile[]>([]);
+
   const unsubMeds = useRef<(() => void) | null>(null);
   const unsubLogs = useRef<(() => void) | null>(null);
+  const unsubPatients = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    const unsub = onAuthStateChanged(auth, async (user) => {
       setIsLoading(true);
       setFirebaseUser(user);
       if (user) {
         try {
           const snap = await getDoc(doc(db, 'users', user.uid));
-          setProfile(snap.exists() ? (snap.data() as UserProfile) : null);
-        } catch (e) {
+          if (snap.exists()) {
+            const data = snap.data() as UserProfile;
+            setProfile(data);
+            setRoleState(data.role);
+          } else {
+            setProfile(null);
+          }
+        } catch {
           setProfile(null);
         }
       } else {
@@ -99,53 +110,99 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setRoleState(null);
         setMedications([]);
         setDoseLogs([]);
+        setPatients([]);
       }
       setIsLoading(false);
     });
-    return unsubscribe;
+    return unsub;
   }, []);
 
-  // Firestore real-time listeners when role changes
+  // Patient subscriptions
   useEffect(() => {
     unsubMeds.current?.();
     unsubLogs.current?.();
     unsubMeds.current = null;
     unsubLogs.current = null;
 
-    if (!firebaseUser || !role) return;
+    if (!firebaseUser || role !== 'patient') return;
 
-    let medsQ;
-    if (role === 'patient') {
-      medsQ = query(collection(db, 'medications'), where('patientEmail', '==', firebaseUser.email));
-    } else if (role === 'doctor') {
-      medsQ = query(collection(db, 'medications'), where('doctorId', '==', firebaseUser.uid));
-    } else if (role === 'caregiver' && profile?.monitoredPatientEmail) {
-      medsQ = query(collection(db, 'medications'), where('patientEmail', '==', profile.monitoredPatientEmail));
-    }
+    const medsQ = query(collection(db, 'medications'), where('patientUid', '==', firebaseUser.uid));
+    unsubMeds.current = onSnapshot(medsQ, snap => {
+      setMedications(snap.docs.map(d => ({ id: d.id, ...d.data() } as Medication)));
+    });
 
-    if (medsQ) {
-      unsubMeds.current = onSnapshot(medsQ, snap => {
-        setMedications(snap.docs.map(d => ({ id: d.id, ...d.data() } as Medication)));
-      });
-    }
-
-    const logsEmail =
-      role === 'patient' ? firebaseUser.email :
-      role === 'caregiver' ? profile?.monitoredPatientEmail :
-      null;
-
-    if (logsEmail) {
-      const logsQ = query(collection(db, 'doseLogs'), where('patientEmail', '==', logsEmail));
-      unsubLogs.current = onSnapshot(logsQ, snap => {
-        setDoseLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as DoseLog)));
-      });
-    }
+    const logsQ = query(collection(db, 'doseLogs'), where('patientUid', '==', firebaseUser.uid));
+    unsubLogs.current = onSnapshot(logsQ, snap => {
+      setDoseLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as DoseLog)));
+    });
 
     return () => {
       unsubMeds.current?.();
       unsubLogs.current?.();
     };
-  }, [firebaseUser, role, profile]);
+  }, [firebaseUser, role]);
+
+  // Caregiver: subscribe to patients list
+  useEffect(() => {
+    unsubPatients.current?.();
+    unsubPatients.current = null;
+
+    if (!firebaseUser || role !== 'caregiver') {
+      setPatients([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, 'users'),
+      where('caregiverId', '==', firebaseUser.uid),
+      where('role', '==', 'patient')
+    );
+    unsubPatients.current = onSnapshot(q, snap => {
+      setPatients(snap.docs.map(d => ({
+        uid: d.id,
+        name: d.data().name as string,
+        email: d.data().email as string,
+      })));
+    });
+
+    return () => { unsubPatients.current?.(); };
+  }, [firebaseUser, role]);
+
+  // Caregiver: subscribe to all patients' medications and logs when patient list changes
+  const patientUidKey = patients.map(p => p.uid).sort().join(',');
+
+  useEffect(() => {
+    unsubMeds.current?.();
+    unsubLogs.current?.();
+    unsubMeds.current = null;
+    unsubLogs.current = null;
+
+    if (role !== 'caregiver' || patients.length === 0) {
+      if (role === 'caregiver') {
+        setMedications([]);
+        setDoseLogs([]);
+      }
+      return;
+    }
+
+    const uids = patients.map(p => p.uid);
+
+    const medsQ = query(collection(db, 'medications'), where('patientUid', 'in', uids));
+    unsubMeds.current = onSnapshot(medsQ, snap => {
+      setMedications(snap.docs.map(d => ({ id: d.id, ...d.data() } as Medication)));
+    });
+
+    const logsQ = query(collection(db, 'doseLogs'), where('patientUid', 'in', uids));
+    unsubLogs.current = onSnapshot(logsQ, snap => {
+      setDoseLogs(snap.docs.map(d => ({ id: d.id, ...d.data() } as DoseLog)));
+    });
+
+    return () => {
+      unsubMeds.current?.();
+      unsubLogs.current?.();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role, patientUidKey]);
 
   const signIn = async (email: string, password: string) => {
     await signInWithEmailAndPassword(auth, email, password);
@@ -155,8 +212,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     email: string,
     password: string,
     name: string,
-    userRole: 'patient' | 'caregiver' | 'doctor',
-    extra?: { licenseNumber?: string; npiNumber?: string; monitoredPatientEmail?: string }
+    userRole: 'patient' | 'caregiver'
   ) => {
     const cred = await createUserWithEmailAndPassword(auth, email, password);
     const profileData: UserProfile = {
@@ -164,28 +220,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       name,
       email: email.toLowerCase(),
       role: userRole,
-      verified: userRole !== 'doctor',
-      ...extra,
     };
-    const clean = Object.fromEntries(
-      Object.entries(profileData).filter(([, v]) => v !== undefined)
-    );
-    await setDoc(doc(db, 'users', cred.user.uid), clean);
+    await setDoc(doc(db, 'users', cred.user.uid), profileData);
     setProfile(profileData);
+    setRoleState(userRole);
   };
 
   const signOut = async () => {
     await firebaseSignOut(auth);
   };
 
-  const verifyDoctor = async (code: string): Promise<boolean> => {
-    if (code.trim() !== 'DOCTOR2024' || !firebaseUser) return false;
-    await updateDoc(doc(db, 'users', firebaseUser.uid), { verified: true });
-    setProfile(prev => prev ? { ...prev, verified: true } : prev);
-    return true;
-  };
-
-  const setRole = (newRole: 'patient' | 'caregiver' | 'doctor') => {
+  const setRole = (newRole: 'patient' | 'caregiver') => {
     setRoleState(newRole);
   };
 
@@ -203,7 +248,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const med = medications.find(m => m.id === medicationId);
     if (med) {
       await updateDoc(doc(db, 'medications', medicationId), {
-        remainingPills: Math.max(0, med.remainingPills - 1),
+        remainingPills: Math.max(0, med.remainingPills - med.pillCount),
       });
     }
   };
@@ -221,17 +266,51 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           date: today,
           status: 'pending',
           patientEmail: med.patientEmail,
+          patientUid: med.patientUid,
         })
       )
     );
   };
 
+  const updateMedication = async (id: string, updates: Partial<Omit<Medication, 'id'>>) => {
+    await updateDoc(doc(db, 'medications', id), updates);
+  };
+
+  const deleteMedication = async (id: string) => {
+    await deleteDoc(doc(db, 'medications', id));
+    const logsQ = query(collection(db, 'doseLogs'), where('medicationId', '==', id));
+    const logsSnap = await getDocs(logsQ);
+    await Promise.all(logsSnap.docs.map(d => deleteDoc(d.ref)));
+  };
+
+  const linkToCaregiver = async (caregiverEmail: string) => {
+    if (!firebaseUser || !profile) throw new Error('Not logged in.');
+    const q = query(
+      collection(db, 'users'),
+      where('email', '==', caregiverEmail.toLowerCase().trim()),
+      where('role', '==', 'caregiver')
+    );
+    const snap = await getDocs(q);
+    if (snap.empty) throw new Error('No caregiver found with that email.');
+    const caregiverUid = snap.docs[0].id;
+    await updateDoc(doc(db, 'users', firebaseUser.uid), { caregiverId: caregiverUid });
+    setProfile(prev => prev ? { ...prev, caregiverId: caregiverUid } : prev);
+  };
+
+  const unlinkCaregiver = async () => {
+    if (!firebaseUser || !profile) return;
+    await updateDoc(doc(db, 'users', firebaseUser.uid), { caregiverId: null });
+    setProfile(prev => prev ? { ...prev, caregiverId: undefined } : prev);
+  };
+
   return (
     <AppContext.Provider value={{
       firebaseUser, profile, isLoading,
-      signIn, signUp, signOut, verifyDoctor,
+      signIn, signUp, signOut,
       role, setRole,
-      medications, doseLogs, logDose, addMedication,
+      medications, doseLogs, patients,
+      logDose, addMedication, updateMedication, deleteMedication,
+      linkToCaregiver, unlinkCaregiver,
     }}>
       {children}
     </AppContext.Provider>
@@ -239,7 +318,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 }
 
 export const useApp = () => {
-  const context = useContext(AppContext);
-  if (!context) throw new Error('useApp must be used within AppProvider');
-  return context;
+  const ctx = useContext(AppContext);
+  if (!ctx) throw new Error('useApp must be used within AppProvider');
+  return ctx;
 };

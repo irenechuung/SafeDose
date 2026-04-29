@@ -3,7 +3,6 @@ import {
   SafeAreaView, ScrollView, Modal,
 } from 'react-native';
 import { useApp, type DoseLog } from '@/context/AppContext';
-import { useRouter } from 'expo-router';
 import { useEffect, useState, useRef } from 'react';
 import * as Notifications from 'expo-notifications';
 
@@ -44,7 +43,6 @@ function getDoseStatus(log: DoseLog): DoseStatus {
 }
 
 export default function PatientHome() {
-  const router = useRouter();
   const { profile, medications, doseLogs, logDose } = useApp();
   const today = new Date().toISOString().split('T')[0];
   const todayLogs = doseLogs.filter(l => l.date === today);
@@ -164,9 +162,6 @@ export default function PatientHome() {
                 {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
               </Text>
             </View>
-            <TouchableOpacity style={styles.switchBtn} onPress={() => router.replace('/')}>
-              <Text style={styles.switchText}>Switch Role</Text>
-            </TouchableOpacity>
           </View>
         </View>
 
@@ -237,8 +232,6 @@ const styles = StyleSheet.create({
   greeting: { fontSize: 18, color: '#64748B' },
   name: { fontSize: 32, fontWeight: '800', color: '#1E3A5F' },
   date: { fontSize: 13, color: '#94A3B8', marginTop: 4 },
-  switchBtn: { backgroundColor: '#E2E8F0', borderRadius: 10, paddingVertical: 6, paddingHorizontal: 12, marginTop: 4 },
-  switchText: { fontSize: 12, color: '#64748B', fontWeight: '600' },
   progressCard: { backgroundColor: '#2563EB', borderRadius: 20, padding: 20, marginBottom: 24 },
   progressLabel: { color: '#BFDBFE', fontSize: 13 },
   progressCount: { color: '#FFF', fontSize: 26, fontWeight: '800', marginTop: 4 },
