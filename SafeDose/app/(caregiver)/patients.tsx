@@ -3,7 +3,7 @@ import {
   Modal, TextInput, Alert, ActivityIndicator, Platform,
 } from 'react-native';
 import { useState } from 'react';
-import { useApp, type Medication, type PatientProfile } from '@/context/AppContext';
+import { useApp, type Medication, type PatientProfile, type DoseLog } from '@/context/AppContext';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 
 export default function CaregiverPatients() {
@@ -173,10 +173,22 @@ export default function CaregiverPatients() {
       <Modal visible={!!selectedPatient} animationType="slide" presentationStyle="pageSheet">
         {selectedPatient && (() => {
           const patientMeds = medications.filter(m => m.patientUid === selectedPatient.uid);
-          const patientLogs = doseLogs.filter(l => l.patientUid === selectedPatient.uid && l.date === today);
-          const resolved = doseLogs.filter(l => l.patientUid === selectedPatient.uid && l.status !== 'pending');
+          const allPatientLogs = doseLogs.filter(l => l.patientUid === selectedPatient.uid);
+          const patientLogs = allPatientLogs.filter(l => l.date === today);
+          const resolved = allPatientLogs.filter(l => l.status !== 'pending');
           const taken = resolved.filter(l => l.status === 'taken').length;
           const adherence = resolved.length > 0 ? Math.round((taken / resolved.length) * 100) : 0;
+
+          const pastLogs = allPatientLogs.filter(l => l.date !== today);
+          const sortedPast = [...pastLogs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+          const groupedPast: Record<string, DoseLog[]> = {};
+          sortedPast.forEach(l => { groupedPast[l.date] = [...(groupedPast[l.date] ?? []), l]; });
+
+          const formatDate = (d: string) => {
+            const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+            if (d === yesterday) return 'Yesterday';
+            return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+          };
 
           return (
             <SafeAreaView style={styles.modalContainer}>
@@ -198,6 +210,7 @@ export default function CaregiverPatients() {
                   <View style={styles.modalAdherenceBar}>
                     <View style={[styles.modalAdherenceFill, { width: `${adherence}%` as `${number}%` }]} />
                   </View>
+                  <Text style={styles.modalAdherenceSub}>{taken} of {resolved.length} resolved doses taken</Text>
                 </View>
 
                 {/* Today's doses */}
@@ -253,6 +266,46 @@ export default function CaregiverPatients() {
                     </View>
                   </View>
                 ))}
+
+                {/* Past dose history */}
+                {Object.keys(groupedPast).length > 0 && (
+                  <>
+                    <View style={styles.historyDivider}>
+                      <View style={styles.dividerLine} />
+                      <Text style={styles.dividerLabel}>Past Doses</Text>
+                      <View style={styles.dividerLine} />
+                    </View>
+                    {Object.entries(groupedPast).map(([date, logs]) => {
+                      const dayResolved = logs.filter(l => l.status !== 'pending');
+                      const dayTaken = logs.filter(l => l.status === 'taken').length;
+                      const dayPct = dayResolved.length > 0 ? Math.round((dayTaken / dayResolved.length) * 100) : null;
+                      return (
+                        <View key={date}>
+                          <View style={styles.pastDateRow}>
+                            <Text style={styles.pastDateLabel}>{formatDate(date)}</Text>
+                            {dayPct !== null && (
+                              <Text style={[styles.pastDatePct, { color: dayPct >= 80 ? '#16A34A' : dayPct >= 50 ? '#F59E0B' : '#DC2626' }]}>
+                                {dayPct}%
+                              </Text>
+                            )}
+                          </View>
+                          {logs.map(log => (
+                            <View key={log.id} style={styles.logRow}>
+                              <View style={[styles.dot, { backgroundColor: dotColor(log.status) }]} />
+                              <View style={{ flex: 1 }}>
+                                <Text style={styles.logMed}>{log.medicationName}</Text>
+                                <Text style={styles.logTime}>{log.scheduledTime}</Text>
+                              </View>
+                              <Text style={[styles.logStatus, { color: dotColor(log.status) }]}>
+                                {log.status === 'taken' ? `✓ ${log.takenAt}` : log.status === 'missed' ? '✗ Missed' : '○ Pending'}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+                      );
+                    })}
+                  </>
+                )}
               </ScrollView>
             </SafeAreaView>
           );
@@ -374,6 +427,7 @@ const styles = StyleSheet.create({
   modalAdherencePct: { color: '#FFF', fontSize: 32, fontWeight: '800', marginTop: 4 },
   modalAdherenceBar: { height: 6, backgroundColor: '#15803D', borderRadius: 3, marginTop: 8 },
   modalAdherenceFill: { height: 6, backgroundColor: '#86EFAC', borderRadius: 3 },
+  modalAdherenceSub: { color: '#BBF7D0', fontSize: 12, marginTop: 6 },
   modalSection: { fontSize: 14, fontWeight: '700', color: '#14532D', marginTop: 16, marginBottom: 8 },
   noneText: { fontSize: 13, color: '#94A3B8', fontStyle: 'italic', marginBottom: 8 },
   logRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', borderRadius: 12, padding: 12, marginBottom: 6 },
@@ -426,4 +480,10 @@ const styles = StyleSheet.create({
   timePickerTitle: { fontSize: 16, fontWeight: '700', color: '#1E3A5F' },
   timePickerCancel: { fontSize: 15, color: '#94A3B8' },
   timePickerDone: { fontSize: 15, fontWeight: '700', color: '#2563EB' },
+  historyDivider: { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 20 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: '#E2E8F0' },
+  dividerLabel: { fontSize: 11, fontWeight: '700', color: '#94A3B8', textTransform: 'uppercase', letterSpacing: 1 },
+  pastDateRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, marginTop: 10 },
+  pastDateLabel: { fontSize: 12, fontWeight: '600', color: '#64748B' },
+  pastDatePct: { fontSize: 12, fontWeight: '700' },
 });
