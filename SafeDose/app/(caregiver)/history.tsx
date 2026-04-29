@@ -1,7 +1,7 @@
 import { View, Text, StyleSheet, SafeAreaView, ScrollView } from 'react-native';
 import { useApp, DoseLog } from '@/context/AppContext';
 
-export default function PatientHistory() {
+export default function CaregiverHistory() {
   const { doseLogs } = useApp();
   const sorted = [...doseLogs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
@@ -20,7 +20,7 @@ export default function PatientHistory() {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scroll}>
-        <Text style={styles.title}>Dose History</Text>
+        <Text style={styles.title}>Margaret's History</Text>
 
         <View style={styles.statCard}>
           <Text style={styles.statLabel}>Overall Adherence</Text>
@@ -69,22 +69,19 @@ export default function PatientHistory() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#EFF6FF' },
+  container: { flex: 1, backgroundColor: '#F0FDF4' },
   scroll: { padding: 20 },
-  title: { fontSize: 28, fontWeight: '800', color: '#1E3A5F', marginBottom: 16 },
-  statCard: { backgroundColor: '#2563EB', borderRadius: 20, padding: 20, marginBottom: 24 },
-  statLabel: { color: '#BFDBFE', fontSize: 13 },
+  title: { fontSize: 28, fontWeight: '800', color: '#14532D', marginBottom: 16 },
+  statCard: { backgroundColor: '#16A34A', borderRadius: 20, padding: 20, marginBottom: 24 },
+  statLabel: { color: '#BBF7D0', fontSize: 13 },
   statPct: { color: '#FFF', fontSize: 40, fontWeight: '800', marginTop: 4 },
-  statBar: { height: 8, backgroundColor: '#1D4ED8', borderRadius: 4, marginTop: 12 },
-  statFill: { height: 8, backgroundColor: '#93C5FD', borderRadius: 4 },
-  statSub: { color: '#BFDBFE', fontSize: 12, marginTop: 8 },
+  statBar: { height: 8, backgroundColor: '#15803D', borderRadius: 4, marginTop: 12 },
+  statFill: { height: 8, backgroundColor: '#86EFAC', borderRadius: 4 },
+  statSub: { color: '#BBF7D0', fontSize: 12, marginTop: 8 },
   dateRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, marginBottom: 8 },
   dateHeader: { fontSize: 13, fontWeight: '600', color: '#64748B' },
   datePct: { fontSize: 13, fontWeight: '700' },
-  row: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF',
-    borderRadius: 12, padding: 14, marginBottom: 8,
-  },
+  row: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', borderRadius: 12, padding: 14, marginBottom: 8 },
   dot: { width: 10, height: 10, borderRadius: 5, marginRight: 12 },
   info: { flex: 1 },
   medName: { fontSize: 16, fontWeight: '600', color: '#1E3A5F' },
