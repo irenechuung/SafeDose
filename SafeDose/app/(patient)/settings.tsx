@@ -3,9 +3,11 @@ import {
   SafeAreaView, ScrollView, Alert, ActivityIndicator,
 } from 'react-native';
 import { useState } from 'react';
+import { useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
 
 export default function PatientSettings() {
+  const router = useRouter();
   const { profile, signOut, linkToCaregiver, unlinkCaregiver } = useApp();
   const [caregiverEmail, setCaregiverEmail] = useState('');
   const [linking, setLinking] = useState(false);
@@ -124,7 +126,7 @@ export default function PatientSettings() {
         </View>
 
         {/* Sign out */}
-        <TouchableOpacity style={styles.signOutBtn} onPress={() => signOut()} activeOpacity={0.8}>
+        <TouchableOpacity style={styles.signOutBtn} onPress={async () => { await signOut(); router.replace('/login'); }} activeOpacity={0.8}>
           <Text style={styles.signOutText}>Sign Out</Text>
         </TouchableOpacity>
       </ScrollView>
