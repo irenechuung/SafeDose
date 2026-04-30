@@ -89,6 +89,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const unsubCaregiverMeds = useRef<(() => void) | null>(null);
   const unsubCaregiverLogs = useRef<(() => void) | null>(null);
   const unsubPatients = useRef<(() => void) | null>(null);
+  // Tracks dose log keys already sent to Firestore to prevent duplicate creates during
+  // the window between addDoc() and onSnapshot() returning the new document.
+  const pendingLogKeys = useRef(new Set<string>());
+  // Ensures the one-time dedup cleanup only runs once per session.
+  const hasDeduped = useRef(false);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
@@ -144,7 +149,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, [firebaseUser, role]);
 
-  // Each time medications or doseLogs update for a patient, ensure today's logs exist
+  // One-time cleanup: remove duplicate dose logs already in Firestore.
+  // Keeps the best log per (medicationId, scheduledTime, date) slot — 'taken' beats 'pending'.
+  useEffect(() => {
+    if (role !== 'patient' || doseLogs.length === 0 || hasDeduped.current) return;
+    hasDeduped.current = true;
+
+    const slots = new Map<string, DoseLog>();
+    const toDelete: string[] = [];
+
+    for (const log of doseLogs) {
+      const key = `${log.medicationId}-${log.scheduledTime}-${log.date}`;
+      const existing = slots.get(key);
+      if (!existing) {
+        slots.set(key, log);
+      } else {
+        // Keep 'taken' over anything else; otherwise keep the first seen
+        const keepNew = log.status === 'taken' && existing.status !== 'taken';
+        if (keepNew) {
+          toDelete.push(existing.id);
+          slots.set(key, log);
+        } else {
+          toDelete.push(log.id);
+        }
+      }
+    }
+
+    if (toDelete.length > 0) {
+      Promise.all(toDelete.map(id => deleteDoc(doc(db, 'doseLogs', id))));
+    }
+  }, [doseLogs, role]);
+
+  // Each time medications or doseLogs update for a patient, ensure today's logs exist.
+  // pendingLogKeys prevents duplicate writes during the gap between addDoc() and onSnapshot().
   useEffect(() => {
     if (role !== 'patient' || !firebaseUser || medications.length === 0) return;
 
@@ -153,10 +190,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const missing: Promise<void>[] = [];
     for (const med of medications) {
       for (const time of med.times) {
+        const key = `${med.id}-${time}-${today}`;
         const exists = doseLogs.some(
           l => l.medicationId === med.id && l.scheduledTime === time && l.date === today
         );
-        if (!exists) {
+        if (!exists && !pendingLogKeys.current.has(key)) {
+          pendingLogKeys.current.add(key);
           missing.push(
             addDoc(collection(db, 'doseLogs'), {
               medicationId: med.id,

@@ -1,11 +1,48 @@
 import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
+import { useEffect, useRef } from 'react';
+import * as Notifications from 'expo-notifications';
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+});
+
+const REFILL_THRESHOLD = 7;
 
 export default function CaregiverDashboard() {
   const router = useRouter();
   const { profile, patients, medications, doseLogs, signOut } = useApp();
   const today = new Date().toISOString().split('T')[0];
+
+  const refillAlerted = useRef(new Set<string>());
+
+  useEffect(() => {
+    Notifications.requestPermissionsAsync();
+  }, []);
+
+  // Notify caregiver when any patient's medication drops to refill threshold
+  useEffect(() => {
+    medications.forEach(med => {
+      if (med.remainingPills <= REFILL_THRESHOLD && !refillAlerted.current.has(med.id)) {
+        refillAlerted.current.add(med.id);
+        Notifications.scheduleNotificationAsync({
+          content: {
+            title: '⚠️ Patient refill needed',
+            body: `${med.patientName}'s ${med.name} has only ${med.remainingPills} pill${med.remainingPills !== 1 ? 's' : ''} left`,
+            sound: true,
+          },
+          trigger: null,
+        });
+      }
+    });
+  }, [medications]);
 
   const todayLogs = doseLogs.filter(l => l.date === today);
   const takenCount = todayLogs.filter(l => l.status === 'taken').length;

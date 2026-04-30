@@ -6,6 +6,11 @@ export type MedIdentification = {
   instructions: string;
 };
 
+export type VerifyResult = {
+  match: boolean;
+  message: string;
+};
+
 export async function identifyMedication(
   base64Image: string,
   mimeType: 'image/jpeg' | 'image/png' | 'image/webp'
@@ -48,4 +53,50 @@ export async function identifyMedication(
   const match = text.match(/\{[\s\S]*\}/);
   if (!match) throw new Error('Could not parse medication from image response.');
   return JSON.parse(match[0]) as MedIdentification;
+}
+
+export async function verifyMedication(
+  base64Image: string,
+  mimeType: 'image/jpeg' | 'image/png' | 'image/webp',
+  expectedName: string,
+  expectedDosage: string,
+): Promise<VerifyResult> {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 128,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: { type: 'base64', media_type: mimeType, data: base64Image },
+            },
+            {
+              type: 'text',
+              text: `Does this bottle label match "${expectedName}" (${expectedDosage})? Reply with JSON only: {"match": true or false, "message": "one short sentence explaining"}. No other text.`,
+            },
+          ],
+        },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Anthropic API error ${res.status}: ${err}`);
+  }
+
+  const data = await res.json();
+  const text: string = data.content[0].text;
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('Could not parse verification response.');
+  return JSON.parse(jsonMatch[0]) as VerifyResult;
 }
